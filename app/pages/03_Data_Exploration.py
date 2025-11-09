@@ -1,0 +1,469 @@
+#Imports
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+from utils import (
+    load_master_data,
+    get_scored_data_for_year
+)
+from licensing import generate_attribution_markdown
+
+#Page Config
+st.set_page_config(
+    page_title="Data Explorer - Thrive Index SW",
+    layout="wide"
+)
+
+#Load Data into Session State
+if 'master_gdf' not in st.session_state:
+    load_master_data()
+lad_gdf = st.session_state['lad_gdf']
+ward_gdf = st.session_state['ward_gdf']
+master_gdf = st.session_state['master_gdf']
+all_years = sorted(master_gdf['year'].unique(), reverse=True)
+latest_year = all_years[0]
+
+#Indicator Mappings
+INDICATORS = {
+    #Top Level Scores
+    'Thrive Index Score': {'col': 'composite_score', 'ascending': False, 'desc': 'The overall composite score.'},
+    'Greenspace Score': {'col': 'greenspace_score', 'ascending': False, 'desc': 'Score based on greenspace coverage.'},
+    'Air Quality Score': {'col': 'air_quality_score', 'ascending': False,
+                          'desc': 'Score based on NO₂ and PM₂.₅. Higher is better.'},
+    'Community Safety Score': {'col': 'community_safety_score', 'ascending': False,
+                               'desc': 'Score based on crime rates. Higher is safer.'},
+    'Healthcare Access Score': {'col': 'healthcare_score', 'ascending': False,
+                                'desc': 'Score based on GP distance and satisfaction.'},
+    'Education Score': {'col': 'education_score', 'ascending': False,
+                        'desc': 'Combined score for primary and secondary education.'},
+    'Childcare Score': {'col': 'childcare_score', 'ascending': False,
+                        'desc': 'Score based on childcare distance, quality, and places.'},
+
+    #Detailed Metrics
+    'Greenspace Percentage (%)': {'col': 'greenspace_percentage', 'ascending': False,
+                                  'desc': 'Percentage of area covered by greenspace.'},
+    'NO₂ Mean Concentration (µg/m³)': {'col': 'no2_mean_concentration', 'ascending': True,
+                                       'desc': 'Average Nitrogen Dioxide level. Lower is better.'},
+    'PM₂.₅ Mean Concentration (µg/m³)': {'col': 'pm25_mean_concentration', 'ascending': True,
+                                         'desc': 'Average PM₂.₅ particulate level. Lower is better.'},
+    'Crime Rate (per 1,000)': {'col': 'crime_rate_per_1000', 'ascending': True,
+                               'desc': 'Crimes per 1,000 people. Lower is better.'},
+    'Avg. Distance to GP (km)': {'col': 'avg_distance_to_gp_km', 'ascending': True,
+                                 'desc': 'Average distance to nearest GPs. Lower is better.'},
+    'Avg. GP Satisfaction (%)': {'col': 'avg_gp_satisfaction', 'ascending': False,
+                                 'desc': 'Average patient satisfaction score. Higher is better.'},
+    'Primary Education Index': {'col': 'primary_education_score', 'ascending': False,
+                                'desc': 'Score based on KS2 pass rate and scaled score.'},
+    'Avg. KS2 Pass Rate (%)': {'col': 'avg_ks2_pass_rate', 'ascending': False,
+                               'desc': 'Average % meeting expected standard at KS2.'},
+    'Avg. Primary Scaled': {'col': 'avg_primary_scaled_score', 'ascending': False,
+                            'desc': 'Average scaled score at KS2.'},
+    'Secondary Education Index': {'col': 'secondary_education_score', 'ascending': False,
+                                  'desc': 'Score based on Progress 8 and Attainment 8.'},
+    'Avg. Progress 8': {'col': 'avg_progress_8', 'ascending': False, 'desc': 'Average Progress 8 score.'},
+    'Avg. Attainment 8': {'col': 'avg_attainment_8', 'ascending': False, 'desc': 'Average Attainment 8 score.'},
+    'Avg. Distance to Childcare (km)': {'col': 'avg_distance_to_childcare_km', 'ascending': True,
+                                        'desc': 'Average distance to nearest childcare. Lower is better.'},
+    'Avg. Childcare Quality': {'col': 'avg_childcare_quality_score', 'ascending': False,
+                               'desc': 'Average Ofsted rating score (4=Outstanding). Higher is better.'},
+    'Total Childcare Places Nearby': {'col': 'total_childcare_places_nearby', 'ascending': False,
+                                      'desc': 'Sum of places at nearest providers. Higher is better.'},
+    'Population': {'col': 'population', 'ascending': False, 'desc': 'Estimated resident population.'},
+    'Latest Median House Price': {
+        'col': 'latest_median_house_price',
+        'ascending': True,
+        'desc': 'Latest available median house price (imputed where missing). Lower is more affordable.'
+    },
+    'IMD Decile (Overall)': {
+        'col': 'IMD_Decile', 'ascending': True,
+        'desc': 'Overall deprivation decile (IMD 2019). 1 = most deprived 10% in England, 10 = least deprived.'
+    },
+    'Income Decile': {
+        'col': 'Income_Decile', 'ascending': True,
+        'desc': 'Income deprivation decile (IMD 2019). 1 = most deprived, 10 = least deprived.'
+    },
+    'Employment Decile': {
+        'col': 'Employment_Decile', 'ascending': True,
+        'desc': 'Employment deprivation decile (IMD 2019). 1 = most deprived, 10 = least deprived.'
+    },
+    'Health Decile': {
+        'col': 'Health_Decile', 'ascending': True,
+        'desc': 'Health deprivation decile (IMD 2019). 1 = most deprived, 10 = least deprived.'
+    }
+}
+#Get list of names for dropdowns
+INDICATOR_NAMES = list(INDICATORS.keys())
+
+#Sidebar
+st.sidebar.title("Data Explorer Controls")
+
+mode = st.sidebar.radio(
+    "Choose Exploration Mode",
+    ("Rank Areas", "Compare Areas", "Explore Correlations", "View Distribution"),
+    help="Select a mode to analyze the data in different ways."
+)
+st.sidebar.markdown("---")
+st.sidebar.markdown("## Global Data Controls")
+st.sidebar.caption("These controls apply to all modes below.")
+
+#Grab Year from Session State
+try:
+    default_year_index = all_years.index(st.session_state.get('selected_year', latest_year))
+except ValueError:
+    default_year_index = 0
+selected_year = st.sidebar.selectbox(
+    "Select Year:",
+    all_years,
+    index=default_year_index,
+    key="selected_year"
+)
+#Customise Thrive Score Weighting
+with st.sidebar.expander("Customise 'Thrive Score' Weights"):
+    w_safety_val = st.session_state.get('w_safety', 15)
+    w_greenspace_val = st.session_state.get('w_greenspace', 15)
+    w_air_val = st.session_state.get('w_air', 15)
+    w_edu_val = st.session_state.get('w_edu', 20)
+    w_health_val = st.session_state.get('w_health', 15)
+    w_childcare_val = st.session_state.get('w_childcare', 20)
+
+    total_weight_val = w_greenspace_val + w_air_val + w_safety_val + w_edu_val + w_health_val + w_childcare_val
+    if total_weight_val == 0: total_weight_val = 1
+    norm_weights_labels = {
+        'greenspace': w_greenspace_val / total_weight_val,
+        'air_quality': w_air_val / total_weight_val,
+        'safety': w_safety_val / total_weight_val,
+        'education': w_edu_val / total_weight_val,
+        'healthcare': w_health_val / total_weight_val,
+        'childcare': w_childcare_val / total_weight_val,
+    }
+
+    w_safety = st.slider(f"Safety ({norm_weights_labels['safety'] * 100:.1f}%)", 0, 100, w_safety_val, key="w_safety")
+    w_greenspace = st.slider(f"Greenspace ({norm_weights_labels['greenspace'] * 100:.1f}%)", 0, 100, w_greenspace_val,
+                             key="w_greenspace")
+    w_air = st.slider(f"Air Quality ({norm_weights_labels['air_quality'] * 100:.1f}%)", 0, 100, w_air_val, key="w_air")
+    w_edu = st.slider(f"Education ({norm_weights_labels['education'] * 100:.1f}%)", 0, 100, w_edu_val, key="w_edu")
+    w_health = st.slider(f"Healthcare ({norm_weights_labels['healthcare'] * 100:.1f}%)", 0, 100, w_health_val,
+                         key="w_health")
+    w_childcare = st.slider(f"Childcare ({norm_weights_labels['childcare'] * 100:.1f}%)", 0, 100, w_childcare_val,
+                            key="w_childcare")
+
+    total_weight = w_greenspace + w_air + w_safety + w_edu + w_health + w_childcare
+    if total_weight == 0: total_weight = 1
+    norm_weights = {
+        'greenspace': w_greenspace / total_weight,
+        'air_quality': w_air / total_weight,
+        'safety': w_safety / total_weight,
+        'education': w_edu / total_weight,
+        'healthcare': w_health / total_weight,
+        'childcare': w_childcare / total_weight,
+    }
+st.sidebar.markdown("---")
+
+#Data Scoring
+norm_weights_tuple = tuple(sorted(norm_weights.items()))
+lsoa_to_display, ward_to_display = get_scored_data_for_year(
+    selected_year,
+    norm_weights_tuple
+)
+ward_stats_df_page = ward_to_display.copy()
+lsoa_index_gdf_page = lsoa_to_display.copy()
+
+#LAD Code -> LAD Name lookup
+lad_name_map = lad_gdf.set_index('lad_code')['lad_name']
+
+#Add display names to Ward dataframe
+ward_stats_df_page['lad_name'] = ward_stats_df_page['LAD25CD'].map(lad_name_map)
+ward_stats_df_page['ward_display_name'] = ward_stats_df_page['lad_name'] + " - " + ward_stats_df_page['WD25NM']
+
+#Add display names and helper columns to LSOA dataframe
+lsoa_index_gdf_page['ward_display_name'] = lsoa_index_gdf_page['LAD25NM'] + " - " + lsoa_index_gdf_page['WD25NM']
+lsoa_index_gdf_page['neighbourhood_num'] = lsoa_index_gdf_page['display_name'].str.split(' - ').str[-1].str.replace(
+    'Neighbourhood ', '')
+lsoa_index_gdf_page['lsoa_dropdown_name'] = lsoa_index_gdf_page['WD25NM'] + " - " + lsoa_index_gdf_page[
+    'neighbourhood_num']
+lsoa_index_gdf_page['lsoa_full_display_name'] = lsoa_index_gdf_page['ward_display_name'] + " - " + lsoa_index_gdf_page[
+    'neighbourhood_num']
+
+#Filtering Helper
+def filter_df_by_lad(df, selected_lad_name):
+    """Filters a dataframe to include only areas within a selected Local Authority."""
+    if selected_lad_name == "All of South West":
+        return df
+    try:
+        selected_lad_code = lad_gdf.loc[lad_gdf['lad_name'] == selected_lad_name, 'lad_code'].iloc[0]
+        if 'LAD25CD' in df.columns:
+            return df[df["LAD25CD"] == selected_lad_code]
+        else:
+            st.error("Cannot filter by LAD: Dataframe missing 'LAD25CD'.")
+            return df
+    except (IndexError, KeyError):
+        st.error("Error filtering by Local Authority.")
+        return df
+
+
+#Main Page Layout
+
+#Rank Areas
+if 'Rank' in mode:
+    st.header(f"Rank Areas for {selected_year}")
+    st.markdown(
+        f"Find the top or bottom areas across the South West based on a chosen indicator for **{selected_year}**.")
+
+    #Sidebar Controls
+    rank_level = st.sidebar.radio("Area Level", ("Wards", "Neighbourhoods (LSOAs)"))
+    rank_order = st.sidebar.radio("Rank Order", ("Top", "Bottom"),
+                                  help="Top ranks best scores, Bottom ranks worst scores.")
+    selected_indicator_name = st.sidebar.selectbox("Select Indicator to Rank By", INDICATOR_NAMES)
+    lad_names = ["All of South West"] + sorted(lad_gdf['lad_name'].unique())
+    selected_lad = st.sidebar.selectbox("Filter by Local Authority (Optional)", lad_names)
+    num_to_show = st.sidebar.slider("Number of areas to show", 5, 50, 10)
+
+    #Prepare data based on selections
+    indicator = INDICATORS[selected_indicator_name]
+    df_to_rank = ward_stats_df_page if rank_level == "Wards" else lsoa_index_gdf_page
+    name_col = 'ward_display_name' if rank_level == "Wards" else 'lsoa_full_display_name'
+    filtered_df = filter_df_by_lad(df_to_rank, selected_lad)
+
+    #Sorting Based on Top/Bottom Selection
+    sort_ascending = indicator['ascending']
+    if rank_order == "Top":
+        sort_ascending = indicator['ascending']
+    else:
+        sort_ascending = not indicator['ascending']
+
+    filtered_df = filtered_df.dropna(subset=[name_col])
+    ranked_df = filtered_df.sort_values(by=indicator['col'], ascending=sort_ascending).head(num_to_show)
+
+    #Display Results
+    st.subheader(f"{rank_order} {num_to_show} {rank_level} for {selected_indicator_name}")
+    st.caption(
+        f"Sorted by values in the **'{selected_indicator_name}'** column for **{selected_year}**. Filtered by: **{selected_lad}**.")
+
+    #Bar Chart
+    PIXELS_PER_BAR, BASE_HEIGHT = 28, 250
+    dynamic_height = min(max((len(ranked_df) * PIXELS_PER_BAR), BASE_HEIGHT), 800)
+    fig = px.bar(
+        ranked_df, x=indicator['col'], y=name_col, orientation='h',
+        labels={indicator['col']: selected_indicator_name, name_col: rank_level[:-1]},
+        height=dynamic_height
+    )
+    fig.update_layout(yaxis={'categoryorder': 'total ascending'})
+    st.plotly_chart(fig, use_container_width=True)
+
+    #Table View
+    with st.expander("View Data Table", expanded=True):
+        display_cols_dict = {props['col']: name for name, props in INDICATORS.items()}
+        cols_to_display_ranked = [name_col] + [col for col in display_cols_dict.keys() if col in ranked_df.columns]
+        cols_to_display_ranked = [col for col in cols_to_display_ranked if col in ranked_df.columns]
+
+        st.dataframe(
+            ranked_df[cols_to_display_ranked]
+            .rename(columns=display_cols_dict)
+            .rename(columns={name_col: rank_level[:-1]}),
+            hide_index=True
+        )
+
+#Compare Areas
+elif 'Compare' in mode:
+    st.header(f"Compare Areas for {selected_year}")
+    st.markdown(f"Select multiple areas to compare their indicators side-by-side for **{selected_year}**.")
+
+    #Sidebar Controls
+    compare_level = st.sidebar.radio("Select Area Level", ("Wards", "Neighbourhoods (LSOAs)"))
+    lad_names = ["All of South West"] + sorted(lad_gdf['lad_name'].unique())
+    selected_lad_compare = st.sidebar.selectbox("Filter Area List by Local Authority", lad_names, key="compare_lad")
+
+    #Prepare data based on selections
+    df_to_compare = ward_stats_df_page if compare_level == "Wards" else lsoa_index_gdf_page
+    option_col = 'WD25NM' if compare_level == "Wards" else 'lsoa_dropdown_name'
+    display_col = 'ward_display_name' if compare_level == "Wards" else 'lsoa_full_display_name'
+    filtered_df = filter_df_by_lad(df_to_compare, selected_lad_compare)
+    filtered_df = filtered_df.dropna(subset=[option_col, display_col])
+
+    #Multiselect
+    options = sorted(filtered_df[option_col].unique())
+    selected_areas = st.sidebar.multiselect(f"Select up to 5 {compare_level} to Compare", options, max_selections=5)
+    if not selected_areas:
+        st.info("Please select areas from the sidebar to begin comparison.")
+    else:
+        #Filter dataframe to only the selected areas
+        comparison_df = filtered_df[filtered_df[option_col].isin(selected_areas)]
+        st.subheader(f"Comparison of {len(selected_areas)} {compare_level}")
+
+        #Bar chart for comparing 0-100 index scores
+        st.markdown("##### Overall Score Comparison")
+        score_cols = {name: props['col'] for name, props in INDICATORS.items() if 'Score' in name}
+        cols_to_plot_with_display = [display_col] + [col for col in score_cols.values() if col in comparison_df.columns]
+        df_to_plot = comparison_df[cols_to_plot_with_display]
+
+        melted_df = pd.melt(df_to_plot, id_vars=[display_col], var_name='Indicator', value_name='Score')
+        col_to_name_map = {v: k for k, v in score_cols.items()}
+        melted_df['Indicator'] = melted_df['Indicator'].map(col_to_name_map)
+
+        fig = px.bar(
+            melted_df, x=display_col, y='Score', color='Indicator', barmode='group',
+            title=f"Indicator Scores by Area ({selected_year}) (Higher is Better)",
+            labels={display_col: compare_level[:-1], 'Score': 'Score (0-100)'}
+        )
+        fig.update_layout(yaxis_range=[0, 100])
+        st.plotly_chart(fig, use_container_width=True)
+
+        #Table View
+        with st.expander("View Detailed Data Table", expanded=True):
+            display_cols_dict = {props['col']: name for name, props in INDICATORS.items()}
+            cols_to_display_compare = [display_col] + [col for col in display_cols_dict.keys() if
+                                                       col in comparison_df.columns]
+            cols_to_display_compare = [col for col in cols_to_display_compare if col in comparison_df.columns]
+
+            #Transpose table for better comparison across areas
+            table_df = (
+                comparison_df[cols_to_display_compare]
+                .set_index(display_col)
+                .rename(columns=display_cols_dict)
+                .T
+            )
+            st.dataframe(table_df)
+
+#Explore Correlations
+elif 'Correlations' in mode:
+    st.header(f"📈 Explore Correlations for {selected_year}")
+    st.markdown(
+        f"Select two indicators to see if there is a relationship between them across all areas for **{selected_year}**.")
+
+    #Sidebar Controls
+    corr_level = st.sidebar.selectbox("Select Area Level", ["Wards", "Neighbourhoods (LSOAs)"])
+    lad_names = ["All of South West"] + sorted(lad_gdf['lad_name'].unique())
+    selected_lad_corr = st.sidebar.selectbox("Filter by Local Authority (Optional)", lad_names, key="corr_lad")
+    st.sidebar.markdown("Select two different indicators to plot against each other:")
+    x_axis_name = st.sidebar.selectbox("Horizontal Axis (X)", INDICATOR_NAMES,
+                                       index=INDICATOR_NAMES.index('Thrive Index Score'))
+    y_axis_name = st.sidebar.selectbox("Vertical Axis (Y)", INDICATOR_NAMES,
+                                       index=INDICATOR_NAMES.index('IMD Decile (Overall)'))
+
+    #Prepare data
+    df_to_corr = ward_stats_df_page if corr_level == "Wards" else lsoa_index_gdf_page
+    name_col = 'ward_display_name' if corr_level == "Wards" else 'lsoa_full_display_name'
+    filtered_df = filter_df_by_lad(df_to_corr, selected_lad_corr)
+
+    if x_axis_name == y_axis_name:
+        st.warning("Please select two different indicators.")
+    else:
+        x_col = INDICATORS[x_axis_name]['col']
+        y_col = INDICATORS[y_axis_name]['col']
+
+        #Scatter plot
+        fig = px.scatter(
+            filtered_df, x=x_col, y=y_col, hover_name=name_col,
+            title=f"Correlation between {x_axis_name} and {y_axis_name} ({selected_year})",
+            labels={x_col: x_axis_name, y_col: y_axis_name},
+            trendline="ols"
+        )
+        fig.update_traces(selector={'type': 'scatter', 'mode': 'lines'}, line={'color': 'red'})
+        st.plotly_chart(fig, use_container_width=True)
+
+        #Interpretation Guide
+        with st.expander("Interpretation Guide"):
+            st.info(
+                f"Each dot represents a {corr_level[:-1]}. This chart helps visualize potential patterns between the two selected indicators.")
+            st.markdown(
+                f"- **Upward sloping red line:** Suggests a *positive correlation* (as **{x_axis_name}** increases, **{y_axis_name}** tends to increase).")
+            st.markdown(
+                f"- **Downward sloping red line:** Suggests a *negative correlation* (as **{x_axis_name}** increases, **{y_axis_name}** tends to decrease).")
+            st.markdown("- **Scattered dots / flat line:** Suggests little to no correlation.")
+
+#View Distribution
+elif 'Distribution' in mode:
+    st.header(f"📊 View Distribution for {selected_year}")
+    st.markdown(f"See how a specific area's score compares to the overall distribution for **{selected_year}**.")
+
+    #Sidebar Controls
+    st.sidebar.markdown("##### Area Selection")
+    dist_level = st.sidebar.radio("Select Area Level", ("Ward", "Neighbourhood (LSOA)"), key="dist_level_toggle")
+    indicator_dist_name = st.sidebar.selectbox("Select Indicator", INDICATOR_NAMES, index=0)
+    lad_names = sorted(lad_gdf['lad_name'].unique())
+    selected_lad_name = st.sidebar.selectbox("1. Filter by Local Authority", lad_names)
+
+    #Get wards within the selected LAD
+    wards_in_lad_df = ward_gdf[
+        ward_gdf["LAD25CD"] == lad_gdf.loc[lad_gdf['lad_name'] == selected_lad_name, 'lad_code'].iloc[0]]
+    ward_options = sorted(wards_in_lad_df['WD25NM'].unique())
+    selected_ward_name = st.sidebar.selectbox("2. Select Ward", ward_options)
+
+    #Determine the selected area based on Ward/LSOA level
+    selected_area_filter_val = None
+    selected_area_display_val = None
+    df = ward_stats_df_page if dist_level == "Ward" else lsoa_index_gdf_page
+
+    if dist_level == "Ward":
+        selected_area_filter_val = selected_ward_name
+        if selected_area_filter_val:
+            try:
+                #Get full display name for selected ward
+                selected_area_display_val = df.loc[df['WD25NM'] == selected_area_filter_val, 'ward_display_name'].iloc[
+                    0]
+            except IndexError:
+                st.sidebar.error(f"Could not find display name for ward: {selected_area_filter_val}")
+                selected_area_filter_val = None
+    else:  #LSOA level
+        if selected_ward_name:
+            try:
+                selected_ward_code = \
+                    wards_in_lad_df.loc[wards_in_lad_df['WD25NM'] == selected_ward_name, 'WD25CD'].iloc[0]
+                lsoas_in_ward = lsoa_index_gdf_page[lsoa_index_gdf_page["WD25CD"] == selected_ward_code]
+                lsoas_in_ward = lsoas_in_ward.dropna(subset=['lsoa_dropdown_name'])
+
+                lsoa_options = sorted(lsoas_in_ward['lsoa_dropdown_name'].unique())
+                if lsoa_options:
+                    selected_area_filter_val = st.sidebar.selectbox("3. Select Neighbourhood (LSOA)", lsoa_options)
+                    if selected_area_filter_val:
+                        #Get full display name for selected LSOA
+                        selected_area_display_val = lsoas_in_ward.loc[
+                            lsoas_in_ward[
+                                'lsoa_dropdown_name'] == selected_area_filter_val, 'lsoa_full_display_name'].iloc[0]
+                else:
+                    st.sidebar.warning(f"No Neighbourhood data found for ward: {selected_ward_name}")
+            except IndexError:
+                st.sidebar.error(f"Error retrieving data for ward: {selected_ward_name}")
+                selected_area_filter_val = None
+
+    #If an area has been successfully selected, display the chart
+    if selected_area_filter_val and selected_area_display_val:
+        filter_col = 'WD25NM' if dist_level == "Ward" else 'lsoa_dropdown_name'
+        indicator_col = INDICATORS[indicator_dist_name]['col']
+
+        #Find the specific row and value for the selected area
+        selected_area_row = df[df[filter_col] == selected_area_filter_val]
+
+        if not selected_area_row.empty:
+            area_value = selected_area_row[indicator_col].iloc[0]
+            st.subheader(f"Distribution of '{indicator_dist_name}' across all {dist_level.lower()}s")
+            st.markdown(f"The red line marks the score for **{selected_area_display_val}**.")
+
+            #Histogram
+            fig = px.histogram(df, x=indicator_col, nbins=50,
+                               title=f"Distribution of {indicator_dist_name} ({selected_year})")
+            #Add vertical line for the selected area value
+            fig.add_vline(x=area_value, line_width=3, line_dash="dash", line_color="red",
+                          annotation_text=f"{selected_area_display_val}: {area_value:.1f}",
+                          annotation_position="top left")
+            st.plotly_chart(fig, use_container_width=True)
+
+            #Calculate and display percentile rank
+            percentile = df[indicator_col].rank(pct=True).loc[df[filter_col] == selected_area_filter_val].iloc[0] * 100
+            is_ascending = INDICATORS[indicator_dist_name]['ascending']
+            percentile_rank = percentile if not is_ascending else (100 - percentile)
+            comparison_word = "top" if not is_ascending else "bottom"
+
+            col1, col2 = st.columns(2)
+            col1.metric(label=f"Score for {selected_area_display_val}", value=f"{area_value:.2f}",
+                        help=INDICATORS[indicator_dist_name]['desc'])
+            col2.metric(label="Percentile Rank", value=f"{comparison_word.title()} {percentile_rank:.0f}%",
+                        help=f"This {dist_level.lower()} performs better than {percentile_rank:.0f}% of all {dist_level.lower()}s for this indicator.")
+        else:
+            st.error(f"Data for '{selected_area_display_val}' could not be found. Please check selections.")
+    else:
+        st.info("Please complete the selection in the sidebar to view the distribution chart.")
+
+#Footer for Sources & Licensing
+with st.expander("Sources & Licensing", expanded=False):
+    st.markdown(generate_attribution_markdown())

@@ -1,0 +1,18 @@
+# PyCharm
+.idea/
+# Python
+__pycache__/
+*.pyc
+.env
+# Data
+data/raw/
+data/interim/
+data/processed/
+data/production/
+scripts/debug/
+
+.venv/
+venv/
+
+# Streamlit
+.streamlit/secrets.toml

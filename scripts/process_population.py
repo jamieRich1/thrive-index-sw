@@ -1,0 +1,96 @@
+import pandas as pd
+import geopandas as gpd
+from pathlib import Path
+import re
+import sys
+
+print("Starting ANNUAL population data processing...")
+
+#Paths and Constants
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+RAW_DATA_DIR = PROJECT_DIR / "data" / "raw" / "population"
+PROCESSED_DATA_DIR = PROJECT_DIR / "data" / "processed"
+RAW_POP_DIR = RAW_DATA_DIR
+LSOA_BOUNDARIES_FILE = PROCESSED_DATA_DIR / "boundaries_lsoa.geoparquet"
+OUTPUT_FILE = PROCESSED_DATA_DIR / "lsoa_annual_population.parquet"
+
+#Data Processing
+try:
+    print("Step 1: Loading the list of required LSOAs for the app...")
+    lsoa_gdf = gpd.read_parquet(LSOA_BOUNDARIES_FILE)
+    required_lsoa_codes = set(lsoa_gdf['area_code'].unique())
+    print(f"Found {len(required_lsoa_codes)} unique LSOAs used in the app.")
+
+    print(f"Step 2: Loading ALL raw population files from {RAW_POP_DIR}...")
+    pop_files = list(RAW_POP_DIR.glob("*.csv"))
+
+    if not pop_files:
+        print(f"ERROR: No raw population CSV files found in {RAW_POP_DIR}. Exiting.")
+        sys.exit(1)
+    all_pop_data = []
+
+    for f in pop_files:
+        match = re.search(r'(\d{4})', f.stem)
+        if not match:
+            print(f"Warning: Could not extract year from filename {f.name}. Skipping.")
+            continue
+
+        year = int(match.group(1))
+        print(f"  -> Processing {f.name} for year {year}...")
+        pop_df = pd.read_csv(f, usecols=['LSOA 2021 Code', 'Total'], thousands=',')
+        pop_df = pop_df.rename(columns={'LSOA 2021 Code': 'area_code', 'Total': 'population'})
+        pop_df['year'] = year
+        all_pop_data.append(pop_df)
+
+    if not all_pop_data:
+        print("ERROR: No population data was successfully processed. Exiting.")
+        sys.exit(1)
+
+    #Combine all found years into one dataframe
+    print("Step 3: Combining all years into one dataframe (2018-2022)...")
+    combined_pop_df = pd.concat(all_pop_data, ignore_index=True)
+    print(f"Loaded {len(combined_pop_df):,} total population records from {len(all_pop_data)} file(s).")
+
+    #Forward-fill latest year for 2023-2025
+    print("Step 3.5: Forward-filling latest population for 2023-2025...")
+    if not combined_pop_df.empty:
+        #Find the latest year
+        latest_year = combined_pop_df['year'].max()
+        print(f"  -> Latest available population year is: {latest_year}")
+        latest_pop_df = combined_pop_df[combined_pop_df['year'] == latest_year].copy()
+        future_years_to_fill = [2023, 2024, 2025]
+        future_pop_data = []
+
+        for year in future_years_to_fill:
+            if year > latest_year:
+                print(f"  -> Creating data for {year} based on {latest_year}...")
+                future_df = latest_pop_df.copy()
+                future_df['year'] = year
+                future_pop_data.append(future_df)
+
+        #Add the new future data back to the main dataframe
+        if future_pop_data:
+            combined_pop_df = pd.concat([combined_pop_df] + future_pop_data, ignore_index=True)
+            print(f"  -> Added {len(future_pop_data)} years of forward-filled data.")
+
+    print("Step 4: Trimming population data to match the app's LSOAs...")
+    trimmed_pop_df = combined_pop_df[combined_pop_df['area_code'].isin(required_lsoa_codes)].copy()
+    print(f"Trimmed to {len(trimmed_pop_df):,} records for the South West.")
+
+    if trimmed_pop_df.empty:
+        print("WARNING: No matching LSOAs found. The output file will be empty.")
+
+    #Save
+    print("Step 5: Cleaning and saving the processed file...")
+    trimmed_pop_df['population'] = pd.to_numeric(trimmed_pop_df['population'], errors='coerce').fillna(0).astype(int)
+    trimmed_pop_df['area_code'] = trimmed_pop_df['area_code'].astype(str).str.strip()
+    trimmed_pop_df['year'] = trimmed_pop_df['year'].astype(int)
+    final_df = trimmed_pop_df[['area_code', 'year', 'population']]
+    final_df.to_parquet(OUTPUT_FILE, index=False)
+    print(f"Success! Processed ANNUAL population data (2018-2025) saved to {OUTPUT_FILE}")
+
+except FileNotFoundError as e:
+    print(f"ERROR: A required file was not found. Please check your file paths. Details: {e}")
+except Exception as e:
+    print(f"An unexpected error occurred: {e}")
+print("Script finished.")
