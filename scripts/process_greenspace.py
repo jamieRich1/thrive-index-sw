@@ -5,24 +5,34 @@ from pathlib import Path
 #Paths and Constants
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_DIR / "data"
-RAW_DATA_PATH = DATA_DIR / "raw" / "greenspace" / "opgrsp_gb.gpkg"
 PROCESSED_DATA_PATH = DATA_DIR / "processed"
+GREENSPACE_GEOMETRIES_FILE = PROCESSED_DATA_PATH / "sw_greenspace_geometries.geoparquet"
 LSOA_BOUNDARIES_PATH = PROCESSED_DATA_PATH / "boundaries_lsoa.geoparquet"
 OUTPUT_FILE = PROCESSED_DATA_PATH / "lsoa_greenspace.parquet"
 
 #Load Data
 print("Loading data...")
-greenspace_gdf = gpd.read_file(RAW_DATA_PATH)
+print(f"  -> Loading pre-processed greenspace geometries from {GREENSPACE_GEOMETRIES_FILE.name}...")
+greenspace_gdf = gpd.read_parquet(GREENSPACE_GEOMETRIES_FILE)
+print(f"  -> Loading LSOA boundaries from {LSOA_BOUNDARIES_PATH.name}...")
 lsoa_gdf = gpd.read_parquet(LSOA_BOUNDARIES_PATH)
 
 #Prepare Geo Dataframes
 print("Converting CRS to EPSG:27700 for accurate area calculations...")
 lsoa_gdf = lsoa_gdf.to_crs(epsg=27700)
+# The greenspace_gdf should already be in 27700 from the other script, but we ensure it.
 greenspace_gdf = greenspace_gdf.to_crs(epsg=27700)
 
 #Spatial Join
 print("Performing spatial intersection... (this may take a few minutes)")
-intersected_gdf = gpd.overlay(lsoa_gdf[["area_code", "geometry"]], greenspace_gdf, how="intersection")
+# We set keep_geom_type=False to be safe, as this will handle any geometry types
+# that result from the intersection (e.g., GeometryCollections).
+intersected_gdf = gpd.overlay(
+    lsoa_gdf[["area_code", "geometry"]],
+    greenspace_gdf,
+    how="intersection",
+    keep_geom_type=False
+)
 intersected_gdf['greenspace_area_m2'] = intersected_gdf.geometry.area
 
 #Aggregate and quantify greenspace
