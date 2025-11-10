@@ -6,7 +6,7 @@ import numpy as np
 import re
 from datetime import datetime
 
-print("Starting childcare provider data processing (Time-Series v3 - Corrected)...")
+print("Starting childcare provider data processing (RAW EXTRACTION - NO IMPUTATION)...")
 
 #Paths and Constants
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -18,10 +18,11 @@ POSTCODE_LOOKUP_FILE = PROCESSED_DATA_DIR / "sw_postcodes.parquet"
 ANNUAL_SCORES_OUTPUT = PROCESSED_DATA_DIR / "lsoa_annual_childcare_scores.parquet"
 STATIC_DETAILS_OUTPUT = PROCESSED_DATA_DIR / "lsoa_childcare_details.parquet"
 NEAREST_N_PROVIDERS = 3
-YEARS_TO_PROCESS = list(range(2018, 2026))
+YEARS_TO_PROCESS = list(range(2018, 2026)) # This is just for the master grid, not for ffill
 
 
-#Helpers
+# (Helper functions extract_date_from_filename, etc. are identical to your original)
+# ...
 def extract_date_from_filename(filename):
     """
     Extracts the date and year from Ofsted filenames.
@@ -222,24 +223,20 @@ for year in available_years:
 annual_scores_df = pd.DataFrame(all_annual_scores)
 static_details_df = pd.DataFrame(static_details_results)
 
-#Back Fill Missing Years
-print("Handling missing years (2018-2020) by back-filling...")
-
+# Create the full 2018-2025 grid
+print("Creating master 2018-2025 grid...")
 master_index = pd.MultiIndex.from_product(
     [lsoa_gdf['area_code'].unique(), YEARS_TO_PROCESS],
     names=['area_code', 'year']
 )
 final_scores_df = pd.DataFrame(index=master_index).reset_index()
 
+# Merge the sparse annual scores, leaving NaNs for missing years
 final_scores_df = final_scores_df.merge(
     annual_scores_df,
     on=['area_code', 'year'],
     how='left'
 )
-
-final_scores_df = final_scores_df.sort_values(by=['area_code', 'year'])
-score_cols = ['avg_childcare_quality_score', 'avg_distance_to_childcare_km', 'total_childcare_places_nearby']
-final_scores_df[score_cols] = final_scores_df.groupby('area_code')[score_cols].bfill()
 
 #Save Files
 historical_cols = {
@@ -253,9 +250,10 @@ historical_df = childcare_gdf[historical_cols.keys()].rename(columns=historical_
 historical_df = historical_df.drop_duplicates(subset=['provider_urn', 'year'])
 historical_df.to_parquet(PROCESSED_DATA_DIR / "childcare_historical_data.parquet", index=False)
 print(f"✅ Success! Saved HISTORICAL provider data to childcare_historical_data.parquet")
+
 final_scores_df.to_parquet(ANNUAL_SCORES_OUTPUT, index=False)
 print(
-    f"Success! Saved ANNUAL scores for {len(final_scores_df['area_code'].unique())} LSOAs (2018-2025) to {ANNUAL_SCORES_OUTPUT.name}")
+    f"Success! Saved SPARSE ANNUAL scores for {len(final_scores_df['area_code'].unique())} LSOAs to {ANNUAL_SCORES_OUTPUT.name}")
 static_details_df.to_parquet(STATIC_DETAILS_OUTPUT, index=False)
 print(
     f"Success! Saved STATIC details (from {latest_year}) for {len(static_details_df)} LSOAs to {STATIC_DETAILS_OUTPUT.name}")

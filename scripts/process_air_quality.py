@@ -65,6 +65,8 @@ def process_pollutant(lsoa_gdf, config, pollutant_name):
 
     if not lsoas_without_data_gdf.empty:
         print(f"Step 2: Found {len(lsoas_without_data_gdf)} LSOAs without internal points. Finding nearest...")
+        # Note: This is SPATIAL imputation (filling missing LSOAs), not temporal imputation (filling missing years).
+        # This is a valid part of the primary processing.
         nearest_join = gpd.sjoin_nearest(lsoas_without_data_gdf[['area_code', 'geometry']], gdf, how="left")
         lsoa_with_nearest_data = nearest_join.groupby('area_code')[config['value_col']].mean().reset_index()
         combined_df = pd.concat([lsoa_with_data, lsoa_with_nearest_data], ignore_index=True)
@@ -77,7 +79,7 @@ def process_pollutant(lsoa_gdf, config, pollutant_name):
 
 #Main Process for Time Series
 if __name__ == "__main__":
-    print("Starting air quality processing for all pollutants...")
+    print("Starting air quality processing (RAW EXTRACTION - NO IMPUTATION)...")
     try:
         lsoa_boundaries = gpd.read_parquet(LSOA_BOUNDARIES_FILE).to_crs("EPSG:27700")
     except Exception as e:
@@ -85,6 +87,8 @@ if __name__ == "__main__":
         print(e)
         sys.exit(1)
 
+    # Note: This range now reflects the data you have (2018-2024).
+    # 2025 will be handled by the master build script.
     YEARS_TO_PROCESS = list(range(2018, 2025))
     all_annual_data = []
 
@@ -129,26 +133,6 @@ if __name__ == "__main__":
     print("\nCombining all processed years...")
     final_df = pd.concat(all_annual_data, ignore_index=True)
 
-    #Forward-fill 2024
-    print("Forward-filling data for 2025...")
-    latest_year_data = final_df['year'].max()
-    print(f"  -> Latest available air quality year is: {latest_year_data}")
-    latest_df = final_df[final_df['year'] == latest_year_data].copy()
-
-    future_years_to_fill = [2025]
-    future_data = []
-
-    for year in future_years_to_fill:
-        if year > latest_year_data:
-            print(f"  -> Creating data for {year} based on {latest_year_data}...")
-            future_df = latest_df.copy()
-            future_df['year'] = year
-            future_data.append(future_df)
-
-    if future_data:
-        final_df = pd.concat([final_df] + future_data, ignore_index=True)
-        print(f"  -> Added {len(future_data)} years of forward-filled data.")
-
     #Final Columns
     output_cols = [
         'area_code', 'year', 'no2_mean_concentration', 'pm25_mean_concentration', 'air_quality_score'
@@ -156,5 +140,5 @@ if __name__ == "__main__":
     final_output_cols = [col for col in output_cols if col in final_df.columns]
     final_df[final_output_cols].to_parquet(OUTPUT_FILE, index=False)
 
-    print(f"Success! Combined annual air quality data (2018-2025) saved to {OUTPUT_FILE}")
+    print(f"Success! Combined raw annual air quality data saved to {OUTPUT_FILE}")
     print("Script finished.")

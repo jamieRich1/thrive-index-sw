@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import sys
 
-print("Starting ANNUAL population data processing...")
+print("Starting ANNUAL population data processing (RAW EXTRACTION - NO IMPUTATION)...")
 
 #Paths and Constants
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -47,31 +47,9 @@ try:
         sys.exit(1)
 
     #Combine all found years into one dataframe
-    print("Step 3: Combining all years into one dataframe (2018-2022)...")
+    print("Step 3: Combining all found years into one dataframe...")
     combined_pop_df = pd.concat(all_pop_data, ignore_index=True)
     print(f"Loaded {len(combined_pop_df):,} total population records from {len(all_pop_data)} file(s).")
-
-    #Forward-fill latest year for 2023-2025
-    print("Step 3.5: Forward-filling latest population for 2023-2025...")
-    if not combined_pop_df.empty:
-        #Find the latest year
-        latest_year = combined_pop_df['year'].max()
-        print(f"  -> Latest available population year is: {latest_year}")
-        latest_pop_df = combined_pop_df[combined_pop_df['year'] == latest_year].copy()
-        future_years_to_fill = [2023, 2024, 2025]
-        future_pop_data = []
-
-        for year in future_years_to_fill:
-            if year > latest_year:
-                print(f"  -> Creating data for {year} based on {latest_year}...")
-                future_df = latest_pop_df.copy()
-                future_df['year'] = year
-                future_pop_data.append(future_df)
-
-        #Add the new future data back to the main dataframe
-        if future_pop_data:
-            combined_pop_df = pd.concat([combined_pop_df] + future_pop_data, ignore_index=True)
-            print(f"  -> Added {len(future_pop_data)} years of forward-filled data.")
 
     print("Step 4: Trimming population data to match the app's LSOAs...")
     trimmed_pop_df = combined_pop_df[combined_pop_df['area_code'].isin(required_lsoa_codes)].copy()
@@ -87,7 +65,7 @@ try:
     trimmed_pop_df['year'] = trimmed_pop_df['year'].astype(int)
     final_df = trimmed_pop_df[['area_code', 'year', 'population']]
     final_df.to_parquet(OUTPUT_FILE, index=False)
-    print(f"Success! Processed ANNUAL population data (2018-2025) saved to {OUTPUT_FILE}")
+    print(f"Success! Processed RAW population data saved to {OUTPUT_FILE}")
 
 except FileNotFoundError as e:
     print(f"ERROR: A required file was not found. Please check your file paths. Details: {e}")
