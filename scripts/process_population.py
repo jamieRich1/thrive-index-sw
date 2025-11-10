@@ -6,7 +6,7 @@ import sys
 
 print("Starting ANNUAL population data processing (RAW EXTRACTION - NO IMPUTATION)...")
 
-# Paths and Constants
+#Paths and Constants
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 RAW_DATA_DIR = PROJECT_DIR / "data" / "raw" / "population"
 PROCESSED_DATA_DIR = PROJECT_DIR / "data" / "processed"
@@ -14,7 +14,7 @@ RAW_POP_DIR = RAW_DATA_DIR
 LSOA_BOUNDARIES_FILE = PROCESSED_DATA_DIR / "boundaries_lsoa.geoparquet"
 OUTPUT_FILE = PROCESSED_DATA_DIR / "lsoa_annual_population.parquet"
 
-# Data Processing
+#Data Processing
 try:
     print("Step 1: Loading the list of required LSOAs for the app...")
     lsoa_gdf = gpd.read_parquet(LSOA_BOUNDARIES_FILE)
@@ -41,28 +41,27 @@ try:
         # Add encoding='utf-8-sig' to handle the 'ï»¿' Byte Order Mark (BOM)
         pop_df = pd.read_csv(f, thousands=',', encoding='utf-8-sig')
 
-        # Normalize headers to lowercase and strip spaces for easier matching
+        # Normalize all column names IN-PLACE first.
         pop_df.columns = [col.lower().strip() for col in pop_df.columns]
-
-        # Find the LSOA code column
-        # Based on debug, 'lsoa 2021 code' is the correct one to find
         if 'lsoa 2021 code' in pop_df.columns:
             lsoa_col = 'lsoa 2021 code'
         elif 'lsoa21cd' in pop_df.columns:
             lsoa_col = 'lsoa21cd'
         else:
             print(f"  -> ERROR: Could not find 'lsoa 2021 code' or 'lsoa21cd' in {f.name}. Skipping.")
+            print(f"     Available columns: {pop_df.columns.tolist()}")
             continue
 
-        # Find the Total column
-        # Based on debug, 'total' is the correct one to find
         if 'total' in pop_df.columns:
             total_col = 'total'
-        elif 'all ages' in pop_df.columns:  # Another common name for it
+        elif 'all ages' in pop_df.columns:  # Another common name
             total_col = 'all ages'
         else:
             print(f"  -> ERROR: Could not find 'total' or 'all ages' column in {f.name}. Skipping.")
+            print(f"     Available columns: {pop_df.columns.tolist()}")
             continue
+
+        print(f"  -> Found columns: '{lsoa_col}' and '{total_col}'")
 
         # Select and rename the correct columns
         pop_df = pop_df[[lsoa_col, total_col]].copy()
@@ -79,7 +78,6 @@ try:
     print("Step 3: Combining all found years into one dataframe...")
     combined_pop_df = pd.concat(all_pop_data, ignore_index=True)
     print(f"Loaded {len(combined_pop_df):,} total population records from {len(all_pop_data)} file(s).")
-
     print("Step 4: Trimming population data to match the app's LSOAs...")
     trimmed_pop_df = combined_pop_df[combined_pop_df['area_code'].isin(required_lsoa_codes)].copy()
     print(f"Trimmed to {len(trimmed_pop_df):,} records for the South West.")

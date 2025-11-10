@@ -2,17 +2,18 @@ import pandas as pd
 import geopandas as gpd
 from pathlib import Path
 import sys
+import numpy as np
 
 print("Starting master annual indicator table build (IMPUTATION ENGINE)...")
 
-# --- 1. DEFINE FILE PATHS ---
+#Paths and Constants
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 PROCESSED_DATA_DIR = PROJECT_DIR / "data" / "processed"
 
-# Base geometry
+#Base Geographies
 LSOA_BOUNDARIES_FILE = PROCESSED_DATA_DIR / "boundaries_lsoa.geoparquet"
 
-# Annual (Time-Series) Data Files (Now "sparse" with gaps)
+# Sparse Annual Data (To be loaded and imputed)
 ANNUAL_POP_FILE = PROCESSED_DATA_DIR / "lsoa_annual_population.parquet"
 ANNUAL_CRIME_FILE = PROCESSED_DATA_DIR / "lsoa_annual_crime.parquet"
 ANNUAL_AIR_QUALITY_FILE = PROCESSED_DATA_DIR / "lsoa_annual_air_quality.parquet"
@@ -20,165 +21,181 @@ ANNUAL_PRIMARY_SCORES_FILE = PROCESSED_DATA_DIR / "lsoa_annual_primary_scores.pa
 ANNUAL_SECONDARY_SCORES_FILE = PROCESSED_DATA_DIR / "lsoa_annual_secondary_scores.parquet"
 ANNUAL_HEALTHCARE_SCORES_FILE = PROCESSED_DATA_DIR / "lsoa_annual_healthcare_scores.parquet"
 ANNUAL_CHILDCARE_SCORES_FILE = PROCESSED_DATA_DIR / "lsoa_annual_childcare_scores.parquet"
-# Note: House price time-series is loaded for context, not merged into this file
 
-# Static (Single-Snapshot) Data Files
+#Static Data
 STATIC_GREENSPACE_FILE = PROCESSED_DATA_DIR / "lsoa_greenspace.parquet"
 STATIC_IMD_FILE = PROCESSED_DATA_DIR / "lsoa_imd.parquet"
-STATIC_LATEST_HOUSE_PRICE_FILE = PROCESSED_DATA_DIR / "lsoa_latest_house_prices_imputed.parquet"  # Contextual
+STATIC_LATEST_HOUSE_PRICE_FILE = PROCESSED_DATA_DIR / "lsoa_latest_house_prices_imputed.parquet"
+
+#Static Details
 STATIC_SECONDARY_EDU_FILE = PROCESSED_DATA_DIR / "lsoa_secondary_education_details.parquet"
 STATIC_PRIMARY_EDU_FILE = PROCESSED_DATA_DIR / "lsoa_primary_education_details.parquet"
 STATIC_HEALTHCARE_FILE = PROCESSED_DATA_DIR / "lsoa_healthcare_details.parquet"
 STATIC_CHILDCARE_FILE = PROCESSED_DATA_DIR / "lsoa_childcare_details.parquet"
 
-# Final Output File
+#Final Output
 OUTPUT_FILE = PROCESSED_DATA_DIR / "lsoa_annual_indicators.parquet"
 
-# Define the full time range for the index
+#Define Years for the complete 2018-2025 grid
 YEARS = list(range(2018, 2026))
 
 
-# --- 2. HELPER FUNCTION ---
-def load_file(file_path, name):
-    """Helper to load a parquet file and exit if it's missing."""
-    if not file_path.exists():
-        print(f"ERROR: Missing required file: {file_path.name}")
-        print(f"Please run the corresponding 'process_*.py' script first.")
+#Helpers
+def load_and_merge_file(master_df, file_path, on_cols, file_desc, cols_to_drop=None):
+    """
+    Helper function to load a parquet file, optionally drop columns, and merge it.
+    """
+    if file_path.exists():
+        print(f"  -> Loading {file_desc}...")
+        df_to_merge = pd.read_parquet(file_path)
+        if cols_to_drop:
+            cols_to_drop_existing = [col for col in cols_to_drop if col in df_to_merge.columns]
+            if cols_to_drop_existing:
+                df_to_merge = df_to_merge.drop(columns=cols_to_drop_existing)
+                print(f"     -> Dropped conflicting columns: {cols_to_drop_existing}")
+
+        master_df = master_df.merge(df_to_merge, on=on_cols, how='left')
+    else:
+        print(f"ERROR: {file_path.name} not found. Stopping build.")
         sys.exit(1)
-    print(f"  -> Loading {name}...")
-    return pd.read_parquet(file_path)
+    return master_df
 
 
-# --- 3. MAIN BUILD PROCESS ---
+#Main Processing
 def main():
-    print("Step 1: Loading LSOA boundaries...")
-    lsoa_gdf = load_file(LSOA_BOUNDARIES_FILE, "LSOA boundaries")
-    lsoa_codes = lsoa_gdf['area_code'].unique()
-    print(f"Loaded {len(lsoa_codes)} LSOAs.")
+    try:
+        #LSOAs
+        print("Step 1: Loading LSOA boundaries...")
+        if not LSOA_BOUNDARIES_FILE.exists():
+            print(f"ERROR: Base LSOA boundary file not found: {LSOA_BOUNDARIES_FILE}")
+            print("Please run 'scripts/build_boundaries_sw.py' first.")
+            sys.exit(1)
+        lsoa_gdf = gpd.read_parquet(LSOA_BOUNDARIES_FILE)
+        lsoa_codes = lsoa_gdf['area_code'].unique()
+        print(f"Loaded {len(lsoa_codes)} LSOAs.")
 
-    print(f"Step 2: Creating master LSOA-Year index for {YEARS[0]}-{YEARS[-1]}...")
-    master_index = pd.MultiIndex.from_product([lsoa_codes, YEARS], names=['area_code', 'year'])
-    master_df = pd.DataFrame(index=master_index).reset_index()
+        #Master LSOA Index
+        print("Step 2: Creating master LSOA-Year index for 2018-2025...")
+        master_index = pd.MultiIndex.from_product([lsoa_codes, YEARS], names=['area_code', 'year'])
+        master_df = pd.DataFrame(index=master_index).reset_index()
+        master_df = master_df.sort_values(by=['area_code', 'year'])
 
-    # --- 3.1. MERGE ANNUAL (SPARSE) DATA ---
-    print("Step 3: Merging sparse annual data (will create NaNs)...")
+        #Merging Sparse Annual Data
+        print("Step 3: Merging sparse annual data (will create NaNs)...")
+        master_df = load_and_merge_file(master_df, ANNUAL_POP_FILE, ['area_code', 'year'], "population")
+        master_df = load_and_merge_file(master_df, ANNUAL_CRIME_FILE, ['area_code', 'year'], "crime",
+                                        cols_to_drop=['population', 'raw_crime_count', 'months_of_data',
+                                                      'is_full_year'])
 
-    annual_files = {
-        ANNUAL_POP_FILE: "population",
-        ANNUAL_CRIME_FILE: "crime",
-        ANNUAL_AIR_QUALITY_FILE: "air quality",
-        ANNUAL_PRIMARY_SCORES_FILE: "primary school scores",
-        ANNUAL_SECONDARY_SCORES_FILE: "secondary school scores",
-        ANNUAL_HEALTHCARE_SCORES_FILE: "healthcare scores",
-        ANNUAL_CHILDCARE_SCORES_FILE: "childcare scores",
-    }
+        master_df = load_and_merge_file(master_df, ANNUAL_AIR_QUALITY_FILE, ['area_code', 'year'], "air quality")
+        master_df = load_and_merge_file(master_df, ANNUAL_PRIMARY_SCORES_FILE, ['area_code', 'year'],
+                                        "primary school scores")
+        master_df = load_and_merge_file(master_df, ANNUAL_SECONDARY_SCORES_FILE, ['area_code', 'year'],
+                                        "secondary school scores")
+        master_df = load_and_merge_file(master_df, ANNUAL_HEALTHCARE_SCORES_FILE, ['area_code', 'year'],
+                                        "healthcare scores")
+        master_df = load_and_merge_file(master_df, ANNUAL_CHILDCARE_SCORES_FILE, ['area_code', 'year'],
+                                        "childcare scores")
 
-    for file_path, name in annual_files.items():
-        df_annual = load_file(file_path, name)
-        # Rename crime count for clarity
-        if file_path == ANNUAL_CRIME_FILE:
-            df_annual = df_annual.rename(columns={'annualized_crime_count': 'crime_count'})
-            df_annual = df_annual.drop(columns=['raw_crime_count', 'months_of_data', 'is_full_year'], errors='ignore')
+        #Merge Static Data
+        print("Step 4: Merging static data (will be propagated across all years)...")
+        master_df = load_and_merge_file(master_df, STATIC_GREENSPACE_FILE, ['area_code'], "greenspace")
+        master_df = load_and_merge_file(master_df, STATIC_IMD_FILE, ['area_code'], "IMD")
+        master_df = load_and_merge_file(master_df, STATIC_LATEST_HOUSE_PRICE_FILE, ['area_code'], "latest house prices")
+        master_df = load_and_merge_file(master_df, STATIC_SECONDARY_EDU_FILE, ['area_code'], "secondary school details")
+        master_df = load_and_merge_file(master_df, STATIC_PRIMARY_EDU_FILE, ['area_code'], "primary school details")
+        master_df = load_and_merge_file(master_df, STATIC_HEALTHCARE_FILE, ['area_code'], "healthcare details")
+        master_df = load_and_merge_file(master_df, STATIC_CHILDCARE_FILE, ['area_code'], "childcare details")
 
-        master_df = master_df.merge(df_annual, on=['area_code', 'year'], how='left')
+        #Imputation
+        print("Step 5: Running imputation strategies...")
 
-    # --- 3.2. MERGE STATIC (SINGLE-SNAPSHOT) DATA ---
-    print("Step 4: Merging static data (will be propagated to all years)...")
+        #Strategy 1: Propagate static data (IMD, Greenspace, etc.) across all years
+        # These indicators are assumed to be constant for the study period.
+        print("  -> Strategy 1: Propagating static data (IMD, Greenspace, etc.) across all years...")
+        static_cols = [
+            'greenspace_percentage', 'IMD_Decile', 'Income_Decile', 'Employment_Decile', 'Health_Decile',
+            'latest_median_house_price', 'avg_distance_to_gp_km'
+        ]
+        #Add static details columns (school names, URNs, etc.)
+        static_cols += [col for col in master_df.columns if '_name' in col or '_urn' in col or '_org_code' in col]
+        static_cols += [col for col in master_df.columns if '_nftype' in col or '_quality_rating' in col]
+        static_cols += [col for col in master_df.columns if '_places' in col or '_distance_km' in col]
+        static_cols += [col for col in master_df.columns if '_data_year' in col or '_satisfaction' in col]
+        static_cols += [col for col in master_df.columns if '_pass_rate' in col or '_avg_scaled_score' in col]
+        static_cols += [col for col in master_df.columns if '_progress_8' in col or '_attainment_8' in col]
 
-    static_files = {
-        STATIC_GREENSPACE_FILE: "greenspace",
-        STATIC_IMD_FILE: "IMD",
-        STATIC_LATEST_HOUSE_PRICE_FILE: "latest house prices",  # Contextual
-        STATIC_SECONDARY_EDU_FILE: "secondary school details",
-        STATIC_PRIMARY_EDU_FILE: "primary school details",
-        STATIC_HEALTHCARE_FILE: "healthcare details",
-        STATIC_CHILDCARE_FILE: "childcare details",
-    }
+        #Remove duplicates and ensure they exist in the dataframe
+        static_cols = list(set(col for col in static_cols if col in master_df.columns))
+        master_df[static_cols] = master_df.groupby('area_code')[static_cols].ffill().bfill()
 
-    # Store column names to be propagated
-    static_cols = []
-    for file_path, name in static_files.items():
-        df_static = load_file(file_path, name)
-        new_cols = [col for col in df_static.columns if col != 'area_code']
-        static_cols.extend(new_cols)
-        master_df = master_df.merge(df_static, on='area_code', how='left')
+        #Strategy 2: Forward-fill Population data (LOCF)
+        # Assumes population from the last known year (2024) is the best estimate for 2025.
+        print("  -> Strategy 2: Forward-filling Population data (LOCF)...")
+        master_df['population'] = master_df.groupby('area_code')['population'].ffill()
 
-    # --- 3.3. START IMPUTATION & GAP-FILLING ---
-    print("Step 5: Running imputation strategies...")
+        #Strategy 3: Forward/Backward-fill Time-Series Data (LOCF/NOCB)
+        #Fills gaps (like 2020-21 for schools) using the nearest available data point.
+        print("  -> Strategy 3: Filling gaps in time-series (Education, Health, Childcare, Air Quality)...")
+        timeseries_cols = [
+            'annualized_crime_count',
+            'no2_mean_concentration', 'pm25_mean_concentration', 'air_quality_score',
+            'avg_primary_scaled_score', 'avg_ks2_pass_rate',
+            'avg_progress_8', 'avg_attainment_8',
+            'avg_gp_satisfaction',
+            'avg_childcare_quality_score', 'avg_distance_to_childcare_km', 'total_childcare_places_nearby'
+        ]
+        #Rename crime column if it exists
+        if 'annualized_crime_count' in master_df.columns:
+            master_df = master_df.rename(columns={'annualized_crime_count': 'crime_count'})
+            timeseries_cols[0] = 'crime_count'
 
-    # Sort by area_code and year, which is ESSENTIAL for ffill/bfill to work correctly
-    master_df = master_df.sort_values(by=['area_code', 'year'])
+        #Ensure we only try to fill columns that were successfully loaded
+        timeseries_cols_exist = [col for col in timeseries_cols if col in master_df.columns]
 
-    # --- Imputation Strategy 1: Static Data Propagation ---
-    # Propagate all static data (IMD, Greenspace, static school/GP names)
-    # across all years for each LSOA.
-    print("  -> Strategy 1: Propagating static data (IMD, Greenspace, etc.) across all years...")
-    # Ensure we only propagate columns that actually exist
-    static_cols_to_propagate = [col for col in static_cols if col in master_df.columns]
-    master_df[static_cols_to_propagate] = master_df.groupby('area_code')[static_cols_to_propagate].ffill().bfill()
+        #ffill() fills forward (e.g., 2019 data fills 2020, 2021)
+        #bfill() fills backward (e.g., 2021 data fills 2018, 2019, 2020)
+        master_df[timeseries_cols_exist] = master_df.groupby('area_code')[timeseries_cols_exist].ffill().bfill()
 
-    # --- Imputation Strategy 2: Annual Contextual Data (Population) ---
-    # Population is not a scoring indicator, but is a denominator for crime.
-    # A simple LOCF (Last Observation Carried Forward) is academically acceptable.
-    # This will now use your 2024 data to fill 2025.
-    print("  -> Strategy 2: Forward-filling Population data (LOCF)...")
-    master_df['population'] = master_df.groupby('area_code')['population'].ffill()
+        #Clean and Save
+        print("Step 6: Final cleanup and save...")
 
-    # --- Imputation Strategy 3: Annual SCORING Data (The Core Logic) ---
-    # This block fills the gaps for the key scoring indicators.
-    # The default method is ffill().bfill() - Last Observation Carried Forward, then Backward.
-    # This fills the COVID gap (2020-2021) for schools with 2019/2022 data.
-    # It back-fills childcare (2018-2020) with 2021 data.
-    # It forward-fills Air Quality (2025) with 2024 data.
-    print("  -> Strategy 3: Filling gaps for scoring indicators (ffill/bfill)...")
+        #Fill any remaining NaNs (e.g., LSOAs with NO data at all) with 0
+        numeric_cols = master_df.select_dtypes(include=np.number).columns.drop(['year'])
+        master_df[numeric_cols] = master_df[numeric_cols].fillna(0)
 
-    scoring_cols = [
-        'crime_count',  # Fill NaNs with 0 instead of ffill
-        'no2_mean_concentration', 'pm25_mean_concentration', 'air_quality_score',
-        'avg_primary_scaled_score', 'avg_ks2_pass_rate',
-        'avg_progress_8', 'avg_attainment_8',
-        'avg_gp_satisfaction',
-        'avg_childcare_quality_score', 'avg_distance_to_childcare_km', 'total_childcare_places_nearby'
-    ]
-    # Ensure we only process columns that were successfully loaded
-    scoring_cols_to_fill = [col for col in scoring_cols if col in master_df.columns and col != 'crime_count']
+        #Fill non-numeric columns with 'N/A'
+        non_numeric_cols = master_df.select_dtypes(exclude=np.number).columns.drop(['area_code'])
+        master_df[non_numeric_cols] = master_df[non_numeric_cols].fillna('N/A')
 
-    # === METHOD 1: Forward-fill then Back-fill (Default) ===
-    master_df[scoring_cols_to_fill] = master_df.groupby('area_code')[scoring_cols_to_fill].ffill().bfill()
+        #Ensure correct data types for integers
+        int_cols = [
+            'population', 'IMD_Decile', 'Income_Decile', 'Employment_Decile', 'Health_Decile',
+            'latest_median_house_price'
+        ]
+        int_cols += [col for col in master_df.columns if '_data_year' in col or '_places' in col]
 
-    # === METHOD 2: Linear Interpolation (Alternative for testing) ===
-    # To use this, comment out the `ffill().bfill()` line above and uncomment the line below.
-    # This will fill gaps by drawing a straight line between the two nearest points.
-    # master_df[scoring_cols_to_fill] = master_df.groupby('area_code')[scoring_cols_to_fill].interpolate(method='linear', limit_direction='both', axis=0)
+        for col in int_cols:
+            if col in master_df.columns:
+                master_df[col] = pd.to_numeric(master_df[col], errors='coerce').fillna(0).astype(int)
 
-    # Specific fill for crime: missing crime data means 0 crimes, not an imputed value.
-    if 'crime_count' in master_df.columns:
-        master_df['crime_count'] = master_df['crime_count'].fillna(0)
+        master_df.to_parquet(OUTPUT_FILE, index=False)
 
-    # --- 3.4. FINAL CLEANUP & SAVE ---
-    print("Step 6: Final cleanup and save...")
+        print(f"Success! Master annual indicator file built with {len(master_df)} LSOA/year records.")
+        print(f"File saved to {OUTPUT_FILE}")
 
-    # Identify all numeric columns for final fill
-    numeric_cols = master_df.select_dtypes(include=np.number).columns.tolist()
-    if 'year' in numeric_cols: numeric_cols.remove('year')  # Don't fill year
-    if 'area_code' in numeric_cols: numeric_cols.remove('area_code')  # This shouldn't be numeric, but good to check
-
-    master_df.fillna({col: 0 for col in numeric_cols}, inplace=True)
-    master_df.fillna('N/A', inplace=True)
-
-    # Ensure key ID/name columns are strings
-    for col in ['area_code', 'WD25CD', 'WD25NM', 'LAD25CD', 'LAD25NM']:
-        if col in master_df.columns:
-            master_df[col] = master_df[col].astype(str).fillna('N/A')
-
-    # Save the master file
-    master_df.to_parquet(OUTPUT_FILE, index=False)
-
-    print("-" * 50)
-    print(f"✅ Success! Master annual indicator file built with {len(master_df)} LSOA/year records.")
-    print(f"All imputation is now centralized in this script.")
-    print(f"File saved to: {OUTPUT_FILE}")
-    print("-" * 50)
+    except FileNotFoundError as e:
+        print(f"ERROR: A required file was not found. {e.filename}")
+        print("Please check your file paths and run rebuild_data.sh")
+        sys.exit(1)
+    except KeyError as e:
+        print(f"ERROR: A required column was not found. {e}")
+        print("This likely means a 'process_*.py' script failed to create the correct columns.")
+        print("Run 'scripts/debug_check_processed_files.py' to investigate.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
