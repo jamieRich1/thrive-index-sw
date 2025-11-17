@@ -6,7 +6,7 @@ print("Starting greenspace geometry processing...")
 #Paths and Constants
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_DIR / "data"
-RAW_DATA_PATH = DATA_DIR / "raw" / "opgrsp_gb.gpkg"
+RAW_DATA_PATH = DATA_DIR / "raw" / "greenspace" / "opgrsp_gb.gpkg"
 SW_BOUNDARY_PATH = DATA_DIR / "processed" / "lad_sw_outline.geojson"
 OUTPUT_FILE = DATA_DIR / "processed" / "sw_greenspace_geometries.geoparquet"
 

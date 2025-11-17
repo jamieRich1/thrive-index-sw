@@ -6,9 +6,9 @@ import numpy as np
 import sys
 import re
 
-print("Starting SECONDARY school (KS4) data processing (v-final-urn-fix)...")
+print("Starting SECONDARY school (KS4) data processing (RAW EXTRACTION - NO IMPUTATION)...")
 
-#Paths and Constants
+# Paths and Constants
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 RAW_DATA_DIR = PROJECT_DIR / "data" / "raw" / "schools"
 PROCESSED_DATA_DIR = PROJECT_DIR / "data" / "processed"
@@ -20,7 +20,7 @@ STATIC_DETAILS_OUTPUT_LSOA = PROCESSED_DATA_DIR / "lsoa_secondary_education_deta
 ANNUAL_SCORES_OUTPUT_WARD = PROCESSED_DATA_DIR / "ward_annual_secondary_scores.parquet"
 STATIC_DETAILS_OUTPUT_WARD = PROCESSED_DATA_DIR / "ward_secondary_education_details.parquet"
 NEAREST_N_SCHOOLS = 3
-YEARS_TO_PROCESS = list(range(2018, 2026))
+YEARS_TO_PROCESS = list(range(2018, 2026))  # This is just for the master grid, not for ffill
 URN_COL = 'URN'
 SCHNAME_COL = 'SCHNAME'
 PCODE_COL = 'PCODE'
@@ -30,7 +30,9 @@ ATTAINMENT_8_COL = 'ATT8SCR'
 PERF_COLS = [PROGRESS_8_COL, ATTAINMENT_8_COL]
 SENTINEL_VALUES = ['SUPP', 'NE', 'LOWCOV', 'NA', '#N/A', -9.99, -2.99, -0.38, 'NEW', 'NP']
 
-#Helpers
+
+# (Helper functions load_school_locations, load_school_performance, etc. are identical to your original)
+# ...
 def extract_year_from_filename(filename):
     """Extracts the end year from filenames like '2017-2018_...'. Returns 2018."""
     match = re.search(r'(\d{4})-(\d{4})', filename)
@@ -164,15 +166,15 @@ def process_area_data(area_gdf, schools_gdf_proj, performance_df, area_code_col)
     """
     print(f"\nStep 3: Finding {NEAREST_N_SCHOOLS} nearest secondary schools for {len(area_gdf)} {area_code_col}s...")
 
-    #Create spatial index for schools
+    # Create spatial index for schools
     school_coords = np.array(list(schools_gdf_proj.geometry.apply(lambda p: (p.x, p.y))))
     kdtree = cKDTree(school_coords)
 
-    #Get centroids for the areas (LSOAs or Wards)
+    # Get centroids for the areas (LSOAs or Wards)
     area_gdf['centroid'] = area_gdf.geometry.centroid
     area_coords = np.array(list(area_gdf.centroid.apply(lambda p: (p.x, p.y))))
 
-    #Nearest Schools
+    # Nearest Schools
     distances_m, indices = kdtree.query(area_coords, k=NEAREST_N_SCHOOLS)
     print(f"Step 4: Generating static 'nearest 3' details file for {area_code_col}...")
     latest_perf_df = performance_df.sort_values(by='year').drop_duplicates(subset=[URN_COL], keep='last')
@@ -207,7 +209,7 @@ def process_area_data(area_gdf, schools_gdf_proj, performance_df, area_code_col)
         static_details_df[f'school_{i}_name'] = static_details_df[f'school_{i}_name'].astype('string')
         static_details_df[f'school_{i}_nftype'] = static_details_df[f'school_{i}_nftype'].astype('string')
 
-    #Annual Scores for Timeseries and forward fill for covid period missing data
+    # Annual Scores for Timeseries and forward fill for covid period missing data
     print(f"Step 5: Generating annual time-series scores for {area_code_col}...")
     area_urn_mapping = []
     area_urn_map_df_base = []
@@ -225,23 +227,24 @@ def process_area_data(area_gdf, schools_gdf_proj, performance_df, area_code_col)
     area_urn_map_df_state_schools = area_urn_map_df[area_urn_map_df[NFTYPE_COL] != 'IND']
     print(f"  -> Filtering to {len(area_urn_map_df_state_schools)} state-school links for scoring.")
     annual_data = area_urn_map_df_state_schools.merge(performance_df, on=URN_COL, how='left')
-    annual_data = annual_data.sort_values(by=['area_code', URN_COL, 'year'])
-    perf_cols_out = ['avg_progress_8', 'avg_attainment_8']
-    annual_data[perf_cols_out] = annual_data.groupby(['area_code', URN_COL])[perf_cols_out].ffill()
-    area_annual_scores = annual_data.groupby(['area_code', 'year'])[perf_cols_out].mean().reset_index()
+
+    # Aggregate only the raw, non-imputed data
+    area_annual_scores = annual_data.groupby(['area_code', 'year'])[
+        ['avg_progress_8', 'avg_attainment_8']
+    ].mean().reset_index()
+
+    # Create the full 2018-2025 grid
     master_index = pd.MultiIndex.from_product(
         [area_gdf[area_code_col].unique(), YEARS_TO_PROCESS],
         names=['area_code', 'year']
     )
     final_scores_df = pd.DataFrame(index=master_index).reset_index()
+    # Merge the sparse scores, which will leave NaNs
     final_scores_df = final_scores_df.merge(area_annual_scores, on=['area_code', 'year'], how='left')
-    print(f"  -> Forward-filling missing years for {area_code_col}s (e.g., COVID gaps)...")
-    final_scores_df[perf_cols_out] = final_scores_df.groupby('area_code')[perf_cols_out].ffill()
-    final_scores_df[perf_cols_out] = final_scores_df.groupby('area_code')[perf_cols_out].bfill()
     return static_details_df, final_scores_df
 
 
-#Main
+# Main
 if __name__ == "__main__":
     print("Step 1: Loading and geocoding all secondary schools...")
     schools_gdf_proj = load_school_locations()
@@ -252,7 +255,8 @@ if __name__ == "__main__":
     ks4_performance_df = load_school_performance()
     if ks4_performance_df is None:
         sys.exit(1)
-    print("  -> Forward-filling missing years in historical school data (e.g., COVID gaps)...")
+
+    print("  -> Saving raw (gappy) historical school data...")
     all_school_urns = schools_gdf_proj[URN_COL].unique()
     master_school_index = pd.MultiIndex.from_product(
         [all_school_urns, YEARS_TO_PROCESS],
@@ -265,15 +269,12 @@ if __name__ == "__main__":
         how='left'
     )
     historical_df = historical_df.sort_values(by=[URN_COL, 'year'])
-    perf_cols = ['avg_progress_8', 'avg_attainment_8']
-    historical_df[perf_cols] = historical_df.groupby(URN_COL)[perf_cols].ffill()
-    historical_df[perf_cols] = historical_df.groupby(URN_COL)[perf_cols].bfill()
     historical_df = historical_df.rename(columns={'URN': 'urn'})
     historical_df.to_parquet(
         PROCESSED_DATA_DIR / "secondary_school_historical_data.parquet",
         index=False
     )
-    print(f"Success! Saved gap-filled historical secondary school data.")
+    print(f"Success! Saved raw (gappy) historical secondary school data.")
     print("\n--- Processing LSOA Data ---")
     lsoa_gdf = gpd.read_parquet(LSOA_BOUNDARIES_FILE).to_crs("EPSG:27700")
     lsoa_static_df, lsoa_annual_df = process_area_data(
@@ -284,7 +285,7 @@ if __name__ == "__main__":
     )
     lsoa_static_df.to_parquet(STATIC_DETAILS_OUTPUT_LSOA, index=False)
     lsoa_annual_df.to_parquet(ANNUAL_SCORES_OUTPUT_LSOA, index=False)
-    print(f"Success! Saved LSOA secondary school files.")
+    print(f"Success! Saved LSOA secondary school files (sparse).")
     print("\n--- Processing Ward Data ---")
     ward_gdf = gpd.read_file(WARD_BOUNDARIES_FILE).to_crs("EPSG:27700")
     ward_static_df, ward_annual_df = process_area_data(
@@ -297,5 +298,5 @@ if __name__ == "__main__":
     ward_annual_df.rename(columns={'area_code': 'ward_code'}, inplace=True)
     ward_static_df.to_parquet(STATIC_DETAILS_OUTPUT_WARD, index=False)
     ward_annual_df.to_parquet(ANNUAL_SCORES_OUTPUT_WARD, index=False)
-    print(f"Success! Saved Ward secondary school files.")
+    print(f"Success! Saved Ward secondary school files (sparse).")
     print("\nSecondary school script finished.")

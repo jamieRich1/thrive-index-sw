@@ -6,9 +6,9 @@ import numpy as np
 import sys
 import re
 
-print("Starting healthcare data processing (Time-Series)...")
+print("Starting healthcare data processing (RAW EXTRACTION - NO IMPUTATION)...")
 
-#Paths and Constants
+# Paths and Constants
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 RAW_DATA_DIR = PROJECT_DIR / "data" / "raw" / "healthcare"
 PROCESSED_DATA_DIR = PROJECT_DIR / "data" / "processed"
@@ -23,11 +23,12 @@ STATIC_DETAILS_OUTPUT_WARD = PROCESSED_DATA_DIR / "ward_healthcare_details.parqu
 ANNUAL_SCORES_OUTPUT_WARD = PROCESSED_DATA_DIR / "ward_annual_healthcare_scores.parquet"
 HISTORICAL_GP_SCORES_OUTPUT = PROCESSED_DATA_DIR / "gp_historical_satisfaction.parquet"
 NEAREST_N_GPS = 3
-YEARS_TO_PROCESS = list(range(2018, 2026))
-LATEST_YEAR = 2025
+YEARS_TO_PROCESS = list(range(2018, 2026))  # This is just for the master grid, not for ffill
+LATEST_YEAR = 2025  # This is a placeholder, the code will find the real latest year
 
 
-#Helpers
+# (Helper functions extract_year_from_filename, load_all_satisfaction_data, etc. are identical to your original)
+# ...
 def extract_year_from_filename(filename):
     """Extracts the year from filenames like 'GPPS_2018_...'. Returns 2018."""
     match = re.search(r'_(\d{4})_', filename)
@@ -61,7 +62,7 @@ def load_all_satisfaction_data():
             continue
 
         try:
-            #Read headers to find columns
+            # Read headers to find columns
             headers = pd.read_csv(f, nrows=0, encoding='utf-8-sig').columns.str.strip().str.strip('"')
             headers_lower = headers.str.lower()
             org_col_name = None
@@ -87,13 +88,13 @@ def load_all_satisfaction_data():
                     sat_col_name = headers[headers_lower == target_sat_col][0]
                     print(f"  -> Processing {f.name} (Year {year}), using col: {sat_col_name}")
 
-            #Column Check
+            # Column Check
             if not org_col_name or not sat_col_name:
                 print(f"Warning: Skipping {f.name}. Could not find required columns for year {year}.")
                 print(f"   (Looked for Org: '{target_org_col}', Sat: '{target_sat_col}')")
                 continue
 
-            #Load and Process Data
+            # Load and Process Data
             df_full = pd.read_csv(f, encoding='utf-8-sig', low_memory=False)
             df_full.columns = df_full.columns.str.strip().str.strip('"')
             df = df_full[[org_col_name, sat_col_name]].copy()
@@ -104,11 +105,11 @@ def load_all_satisfaction_data():
 
             df['org_code'] = df['org_code'].str.strip()
 
-            #Satisfaction Score
+            # Satisfaction Score
             sat_val = pd.to_numeric(df['sat_val'], errors='coerce')
             df['satisfaction_pct'] = sat_val * 100
 
-            #Clean and Store
+            # Clean and Store
             df['satisfaction_pct'] = df['satisfaction_pct'].clip(0, 100)
             df.loc[df['satisfaction_pct'] > 100, 'satisfaction_pct'] = np.nan
             df.loc[df['satisfaction_pct'] < 0, 'satisfaction_pct'] = np.nan
@@ -125,6 +126,7 @@ def load_all_satisfaction_data():
     master_satisfaction_df.dropna(subset=['org_code', 'satisfaction_pct'], inplace=True)
     print(f"  -> Loaded {len(master_satisfaction_df)} total satisfaction records from {len(survey_files)} files.")
     return master_satisfaction_df
+
 
 def load_practice_locations():
     """
@@ -151,7 +153,7 @@ def load_practice_locations():
     for col in ['org_code', 'name', 'postcode', 'setting_code']:
         gp_locs_df[col] = gp_locs_df[col].str.strip().str.strip('"')
 
-    #Filter for active GP practices
+    # Filter for active GP practices
     gp_locs_df = gp_locs_df[gp_locs_df['setting_code'] == '4'].copy()
     gp_locs_df = gp_locs_df[['org_code', 'name', 'postcode']]
     gp_locs_df.dropna(subset=['postcode'], inplace=True)
@@ -179,7 +181,7 @@ def geocode_practices(gp_locs_df):
     return gp_gdf.to_crs("EPSG:27700")
 
 
-def process_area_data(area_gdf, schools_gdf_proj, master_satisfaction_df, area_code_col):
+def process_area_data(area_gdf, schools_gdf_proj, master_satisfaction_df, area_code_col, latest_year_for_static):
     """
     Processes either LSOA or Ward data to find nearest schools and calculate scores.
     """
@@ -195,7 +197,8 @@ def process_area_data(area_gdf, schools_gdf_proj, master_satisfaction_df, area_c
 
     print(f"Step 4: Generating static 'nearest 3' details file for {area_code_col}...")
 
-    latest_perf_df = master_satisfaction_df[master_satisfaction_df['year'] == LATEST_YEAR]
+    # Use the real latest year from the data for static details
+    latest_perf_df = master_satisfaction_df[master_satisfaction_df['year'] == latest_year_for_static]
     gp_gdf_unproj = schools_gdf_proj.to_crs("EPSG:4326")
 
     static_details_results = []
@@ -251,28 +254,11 @@ def process_area_data(area_gdf, schools_gdf_proj, master_satisfaction_df, area_c
         names=['area_code', 'year']
     )
     final_scores_df = pd.DataFrame(index=master_index).reset_index()
-
     final_scores_df = final_scores_df.merge(area_annual_scores, on=['area_code', 'year'], how='left')
-
-    print(f"  -> Forward-filling missing years for {area_code_col}s...")
-
-    #Forward/backward fill safely without changing the index structure
-    def safe_fill(group):
-        """Only fill within a group if at least one non-null value exists."""
-        if group['avg_gp_satisfaction'].notna().any():
-            group['avg_gp_satisfaction'] = group['avg_gp_satisfaction'].ffill().bfill()
-        return group
-
-    final_scores_df = (
-        final_scores_df
-        .groupby('area_code', group_keys=False)[['year', 'avg_gp_satisfaction']]
-        .apply(safe_fill)
-    )
-
     return static_details_df, final_scores_df
 
 
-#Main
+# Main
 if __name__ == "__main__":
 
     print("Step 1: Loading all GP data...")
@@ -280,23 +266,29 @@ if __name__ == "__main__":
     if master_satisfaction_df is None:
         sys.exit(1)
 
+    # Find the real latest year from the loaded data
+    LATEST_YEAR_IN_DATA = master_satisfaction_df['year'].max()
+    print(f"  -> Latest year found in survey data: {LATEST_YEAR_IN_DATA}")
+
     gp_locs_df = load_practice_locations()
     if gp_locs_df is None:
         sys.exit(1)
 
     print("\nStep 2: Filtering, geocoding, and saving GP data...")
 
+    # Use the *real* latest year to filter practices
     latest_org_codes = master_satisfaction_df[
-        master_satisfaction_df['year'] == LATEST_YEAR
+        master_satisfaction_df['year'] == LATEST_YEAR_IN_DATA
         ]['org_code'].unique()
 
-    print(f"  -> Found {len(latest_org_codes)} practices in {LATEST_YEAR} survey.")
+    print(f"  -> Found {len(latest_org_codes)} practices in {LATEST_YEAR_IN_DATA} survey.")
 
     existing_practices_df = gp_locs_df[
         gp_locs_df['org_code'].isin(latest_org_codes)
     ].copy()
 
-    print(f"  -> Found {len(existing_practices_df)} 'existing' practices (in epraccur AND {LATEST_YEAR} survey).")
+    print(
+        f"  -> Found {len(existing_practices_df)} 'existing' practices (in epraccur AND {LATEST_YEAR_IN_DATA} survey).")
 
     gp_gdf_proj = geocode_practices(existing_practices_df)
 
@@ -321,18 +313,20 @@ if __name__ == "__main__":
         area_gdf=lsoa_gdf,
         schools_gdf_proj=gp_gdf_proj,
         master_satisfaction_df=master_satisfaction_df,
-        area_code_col='area_code'
+        area_code_col='area_code',
+        latest_year_for_static=LATEST_YEAR_IN_DATA
     )
 
     if 'area_code' not in lsoa_annual_df.columns:
         if 'index' in lsoa_annual_df.columns:
             lsoa_annual_df.rename(columns={'index': 'area_code'}, inplace=True)
         else:
-            lsoa_annual_df['area_code'] = lsoa_static_df['area_code'].iloc[0:len(lsoa_annual_df)]
+            # This is a fallback, but the logic should populate area_code correctly
+            lsoa_annual_df['area_code'] = lsoa_annual_df['area_code'].iloc[0:len(lsoa_annual_df)]
 
     lsoa_static_df.to_parquet(STATIC_DETAILS_OUTPUT_LSOA, index=False)
     lsoa_annual_df.to_parquet(ANNUAL_SCORES_OUTPUT_LSOA, index=False)
-    print(f"Success! Saved LSOA healthcare files.")
+    print(f"Success! Saved LSOA healthcare files (sparse).")
 
     print("\n--- Processing Ward Data ---")
     ward_gdf = gpd.read_file(WARD_BOUNDARIES_FILE).to_crs("EPSG:27700")
@@ -340,11 +334,12 @@ if __name__ == "__main__":
         area_gdf=ward_gdf,
         schools_gdf_proj=gp_gdf_proj,
         master_satisfaction_df=master_satisfaction_df,
-        area_code_col='WD25CD'
+        area_code_col='WD25CD',
+        latest_year_for_static=LATEST_YEAR_IN_DATA
     )
     ward_static_df.rename(columns={'area_code': 'ward_code'}, inplace=True)
     ward_annual_df.rename(columns={'area_code': 'ward_code'}, inplace=True)
     ward_static_df.to_parquet(STATIC_DETAILS_OUTPUT_WARD, index=False)
     ward_annual_df.to_parquet(ANNUAL_SCORES_OUTPUT_WARD, index=False)
-    print(f"Success! Saved Ward healthcare files.")
+    print(f"Success! Saved Ward healthcare files (sparse).")
     print("\nHealthcare script finished.")
