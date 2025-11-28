@@ -32,7 +32,8 @@ score_columns = {
     'Index of Multiple Deprivation (IMD) Score': 'IMD_Decile',
     'Income Score (rate)': 'Income_Decile',
     'Employment Score (rate)': 'Employment_Decile',
-    'Health Deprivation and Disability Score': 'Health_Decile'
+    'Health Deprivation and Disability Score': 'Health_Decile',
+    'Income Deprivation Affecting Children Index (IDACI) Score (rate)': 'IDACI_Decile'
 }
 
 for score_col in score_columns.keys():

@@ -116,58 +116,134 @@ def load_secondary_historical_data():
 
 
 #Scoring Functions
+def normalize_series(series, invert=False):
+    """
+    Normalises a series to 0-100 using Min-Max scaling with Winsorisation.
+    Recommended by OECD Handbook to preserve data distribution while handling outliers.
+
+    Args:
+        series: Pandas Series to normalise
+        invert: If True, lower values get higher scores (e.g., Crime, Pollution)
+    """
+    # 1. Handle edge case: empty or constant data
+    if series.empty or series.nunique() <= 1:
+        return pd.Series(50, index=series.index)  # Return neutral score
+
+    # 2. Winsorisation (Clip outliers to 5th and 95th percentile)
+    # This prevents one extreme value from squashing everyone else into a tiny range.
+    lower_bound = series.quantile(0.05)
+    upper_bound = series.quantile(0.95)
+    clipped = series.clip(lower=lower_bound, upper=upper_bound)
+
+    # 3. Min-Max Calculation
+    min_val = clipped.min()
+    max_val = clipped.max()
+
+    # Avoid division by zero
+    if max_val == min_val:
+        return pd.Series(50, index=series.index)
+
+    # 4. Calculate 0-100 Score
+    if invert:
+        # Lower values = Higher score (100)
+        score = ((max_val - clipped) / (max_val - min_val)) * 100
+    else:
+        # Higher values = Higher score (100)
+        score = ((clipped - min_val) / (max_val - min_val)) * 100
+
+    return score
+
 def calculate_greenspace_score(df):
-    df['greenspace_score'] = df['greenspace_percentage'].rank(pct=True) * 100
+    # Higher % is better -> invert=False
+    # Kept for display purposes, but not used in 2-Pillar score
+    df['greenspace_score'] = normalize_series(df['greenspace_percentage'], invert=False)
     return df
 
-def calculate_air_quality_score(row):
-    MAX_NO2, MAX_PM25 = 50, 25
-    no2_conc, pm25_conc = row.get('no2_mean_concentration', 0), row.get('pm25_mean_concentration', 0)
-    no2_norm, pm25_norm = min(no2_conc / MAX_NO2, 1.0), min(pm25_conc / MAX_PM25, 1.0)
-    avg_pollutant_norm = (no2_norm + pm25_norm) / 2
-    return (1 - avg_pollutant_norm) * 100
+
+def calculate_air_quality_score(df):
+    # Calculate score for NO2 (Lower is better)
+    no2_score = normalize_series(df['no2_mean_concentration'], invert=True)
+    # Calculate score for PM2.5 (Lower is better)
+    pm25_score = normalize_series(df['pm25_mean_concentration'], invert=True)
+    df['air_quality_score'] = (no2_score + pm25_score) / 2
+    return df
+
 
 def calculate_community_safety_score(df):
-    # --- FIX 1: Fillna(1) to avoid divide by zero if population is missing ---
     safe_population = df['population'].replace(0, 1).fillna(1)
     df['crime_rate_per_1000'] = (df['crime_count'] / safe_population) * 1000
-    df['community_safety_score'] = df['crime_rate_per_1000'].rank(pct=True, ascending=False) * 100
+    # Lower crime is better -> invert=True
+    df['community_safety_score'] = normalize_series(df['crime_rate_per_1000'], invert=True)
     return df
+
 
 def calculate_secondary_education_score(df):
-    df['progress_8_percentile'] = df['avg_progress_8'].rank(pct=True, ascending=True) * 100
-    df['attainment_8_percentile'] = df['avg_attainment_8'].rank(pct=True, ascending=True) * 100
-    df['secondary_education_score'] = (df['progress_8_percentile'] + df['attainment_8_percentile']) / 2
+    # REMOVED: Attainment 8 (conflicting variable)
+    # Only using Progress 8 (Value Added)
+    # Higher scores are better -> invert=False
+    progress_score = normalize_series(df['avg_progress_8'], invert=False)
+    df['secondary_education_score'] = progress_score
     return df
+
 
 def calculate_primary_education_score(df):
-    df['pass_rate_percentile'] = df['avg_ks2_pass_rate'].rank(pct=True, ascending=True) * 100
-    df['scaled_score_percentile'] = df['avg_primary_scaled_score'].rank(pct=True, ascending=True) * 100
-    df['primary_education_score'] = (df['pass_rate_percentile'] + df['scaled_score_percentile']) / 2
+    # Higher scores are better -> invert=False
+    pass_rate_score = normalize_series(df['avg_ks2_pass_rate'], invert=False)
+    scaled_score = normalize_series(df['avg_primary_scaled_score'], invert=False)
+    df['primary_education_score'] = (pass_rate_score + scaled_score) / 2
     return df
+
 
 def calculate_healthcare_score(df):
-    df['distance_percentile'] = df['avg_distance_to_gp_km'].rank(pct=True, ascending=False) * 100
-    df['satisfaction_percentile'] = df['avg_gp_satisfaction'].rank(pct=True, ascending=True) * 100
-    df['healthcare_score'] = (df['distance_percentile'] + df['satisfaction_percentile']) / 2
+    # We now strictly measure Quality/Outcome (Satisfaction) rather than Access (Distance).
+    # Distance data remains in the dataframe for the UI, but affects the score no longer.
+    # Satisfaction: Higher is better -> invert=False
+    df['healthcare_score'] = normalize_series(df['avg_gp_satisfaction'], invert=False)
     return df
+
 
 def calculate_childcare_score(df):
-    df['childcare_distance_percentile'] = df['avg_distance_to_childcare_km'].rank(pct=True, ascending=False) * 100
-    df['childcare_quality_percentile'] = df['avg_childcare_quality_score'].rank(pct=True, ascending=True) * 100
-    df['childcare_places_percentile'] = df['total_childcare_places_nearby'].rank(pct=True, ascending=True) * 100
-    df['childcare_score'] = (df['childcare_distance_percentile'] + df['childcare_quality_percentile'] + df[
-        'childcare_places_percentile']) / 3
+    # We now strictly measure Quality (Ofsted Rating) rather than Access (Distance/Places).
+    # Distance and Places data remain in the dataframe for the UI.
+    # Quality: Higher is better -> invert=False
+    df['childcare_score'] = normalize_series(df['avg_childcare_quality_score'], invert=False)
     return df
 
+
+# REMOVED: calculate_idaci_score (conflicting variable)
+
+
+def calculate_pillars(df):
+    """
+    Aggregates indicators into the 2 Conceptual Pillars: Safety and Opportunity.
+    """
+    # 1. SAFETY PILLAR (Crime + Air Quality)
+    df['safety_pillar_score'] = (df['community_safety_score'] + df['air_quality_score']) / 2
+
+    # 2. OPPORTUNITY PILLAR (Education + Healthcare + Childcare)
+    # REMOVED: IDACI
+    df['opportunity_pillar_score'] = (
+                                             df['education_score'] +
+                                             df['healthcare_score'] +
+                                             df['childcare_score']
+                                     ) / 3
+
+    # Greenspace is no longer a pillar contributing to the score
+    return df
+
+
 def calculate_thrive_score(row, weights_dict):
-    """Calculates the composite score based on user-defined weights."""
-    score = (row.get('greenspace_score', 0) * weights_dict['greenspace'] +
-             row.get('air_quality_score', 0) * weights_dict['air_quality'] +
-             row.get('community_safety_score', 0) * weights_dict['safety'] +
-             row.get('education_score', 0) * weights_dict['education'] +
-             row.get('healthcare_score', 0) * weights_dict['healthcare'] +
-             row.get('childcare_score', 0) * weights_dict['childcare'])
+    """
+    Calculates the final composite score based on the 2 PILLARS.
+
+    Args:
+        weights_dict: Must contain keys 'safety', 'opportunity'
+    """
+    # The weights now apply to the 2 PILLARS
+    score = (
+            row.get('safety_pillar_score', 0) * weights_dict['safety'] +
+            row.get('opportunity_pillar_score', 0) * weights_dict['opportunity']
+    )
     return score
 
 #Master Data Loader
@@ -276,18 +352,24 @@ def get_scored_data_for_year(selected_year: int, thrive_weights_tuple: tuple):
     gdf_year = calculate_primary_education_score(gdf_year)
     gdf_year = calculate_healthcare_score(gdf_year)
     gdf_year = calculate_childcare_score(gdf_year)
-    gdf_year['air_quality_score'] = gdf_year.apply(calculate_air_quality_score, axis=1)
+    gdf_year = calculate_air_quality_score(gdf_year)
+    # calculate_idaci_score REMOVED
 
     #Calculate combined scores
     gdf_year['education_score'] = (gdf_year['primary_education_score'] + gdf_year['secondary_education_score']) / 2
 
-    #Calculate final composite score using the provided weights
+    #Calculate Level 2 Pillars (Safety, Opportunity)
+    gdf_year = calculate_pillars(gdf_year)
+
+    #Calculate Level 1 Thrive Score (Weighted Average of 2 Pillars)
     gdf_year['composite_score'] = gdf_year.apply(
         lambda row: calculate_thrive_score(row, thrive_weights), axis=1
     )
 
     #Calculate ward-level stats for the selected year
     agg_cols = {
+        'safety_pillar_score': 'mean',
+        'opportunity_pillar_score': 'mean',
         'greenspace_score': 'mean', 'greenspace_percentage': 'mean', 'air_quality_score': 'mean',
         'no2_mean_concentration': 'mean', 'pm25_mean_concentration': 'mean',
         'community_safety_score': 'mean', 'crime_rate_per_1000': 'mean',
@@ -297,6 +379,7 @@ def get_scored_data_for_year(selected_year: int, thrive_weights_tuple: tuple):
         'healthcare_score': 'mean', 'avg_distance_to_gp_km': 'mean', 'avg_gp_satisfaction': 'mean',
         'childcare_score': 'mean', 'avg_distance_to_childcare_km': 'mean',
         'avg_childcare_quality_score': 'mean', 'total_childcare_places_nearby': 'mean',
+        'IDACI_Decile': 'mean',
         'composite_score': 'mean', 'population': 'sum', 'latest_median_house_price': 'mean',
         'IMD_Decile': 'mean', 'Income_Decile': 'mean', 'Employment_Decile': 'mean', 'Health_Decile': 'mean'
     }
@@ -308,21 +391,21 @@ def get_scored_data_for_year(selected_year: int, thrive_weights_tuple: tuple):
     if not valid_agg_cols:
         ward_stats_df = pd.DataFrame(columns=group_cols + ['LAD25CD'])
     else:
-        #Aggregate the data
         ward_stats_df = gdf_year.groupby(group_cols, as_index=False).agg(valid_agg_cols)
-        #Create a lookup to find the LAD code for each Ward code
         ward_lad_lookup = gdf_year[['WD25CD', 'LAD25CD']].drop_duplicates().dropna()
-        #Merge the LAD code back onto the aggregated dataframe
         ward_stats_df = ward_stats_df.merge(ward_lad_lookup, on='WD25CD', how='left')
-        #Clean up aggregated data types
+
+        # Clean Ints
         if 'latest_median_house_price' in ward_stats_df.columns:
             ward_stats_df['latest_median_house_price'] = ward_stats_df['latest_median_house_price'].fillna(0).astype(
                 int)
 
-        imd_cols_to_int = ['IMD_Decile', 'Income_Decile', 'Employment_Decile', 'Health_Decile']
+        # Round Deciles
+        imd_cols_to_int = ['IMD_Decile', 'Income_Decile', 'Employment_Decile', 'Health_Decile', 'IDACI_Decile']
         for col in imd_cols_to_int:
             if col in ward_stats_df.columns:
                 ward_stats_df[col] = ward_stats_df[col].round(0).fillna(0).astype(int)
+
     return gdf_year, ward_stats_df
 
 

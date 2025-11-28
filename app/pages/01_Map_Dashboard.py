@@ -81,46 +81,34 @@ with st.sidebar:
         index=default_year_index,
         key="selected_year"
     )
-    #Customise Thrive Score Weights
-    with st.expander("Customise 'Thrive Score' Weights"):
-        st.markdown("Adjust the importance of each category.")
-        #Set Values from Session State
-        w_safety_val = st.session_state.get('w_safety', 15)
-        w_greenspace_val = st.session_state.get('w_greenspace', 15)
-        w_air_val = st.session_state.get('w_air', 15)
-        w_edu_val = st.session_state.get('w_edu', 20)
-        w_health_val = st.session_state.get('w_health', 15)
-        w_childcare_val = st.session_state.get('w_childcare', 20)
-        #Labels
-        total_weight_val = w_greenspace_val + w_air_val + w_safety_val + w_edu_val + w_health_val + w_childcare_val
-        if total_weight_val == 0: total_weight_val = 1
-        norm_weights_labels = {
-            'greenspace': w_greenspace_val / total_weight_val,
-            'air_quality': w_air_val / total_weight_val,
-            'safety': w_safety_val / total_weight_val,
-            'education': w_edu_val / total_weight_val,
-            'healthcare': w_health_val / total_weight_val,
-            'childcare': w_childcare_val / total_weight_val,
-        }
-        w_safety = st.slider(f"Safety ({norm_weights_labels['safety'] * 100:.1f}%)", 0, 100, w_safety_val, key="w_safety")
-        w_greenspace = st.slider(f"Greenspace ({norm_weights_labels['greenspace'] * 100:.1f}%)", 0, 100, w_greenspace_val, key="w_greenspace")
-        w_air = st.slider(f"Air Quality ({norm_weights_labels['air_quality'] * 100:.1f}%)", 0, 100, w_air_val, key="w_air")
-        w_edu = st.slider(f"Education ({norm_weights_labels['education'] * 100:.1f}%)", 0, 100, w_edu_val, key="w_edu")
-        w_health = st.slider(f"Healthcare ({norm_weights_labels['healthcare'] * 100:.1f}%)", 0, 100, w_health_val, key="w_health")
-        w_childcare = st.slider(f"Childcare ({norm_weights_labels['childcare'] * 100:.1f}%)", 0, 100, w_childcare_val, key="w_childcare")
+    # Customise Thrive Score Weights (2-Pillar System)
+    with st.sidebar.expander("Customise 'Thrive Score' Weights"):
+        st.markdown("Adjust the balance between the two core pillars.")
 
-        #Normalise weights for scoring
-        total_weight = w_greenspace + w_air + w_safety + w_edu + w_health + w_childcare
+        # 1. Set Defaults (Equal Weight: 50/50)
+        w_safety_val = st.session_state.get('w_safety', 50)
+        w_opp_val = st.session_state.get('w_opportunity', 50)
+
+        # 2. The 2 Sliders (Removed Greenspace)
+        w_safety = st.slider("🛡️ Safety & Air", 0, 100, w_safety_val, key="w_safety",
+                             help="Crime rates and Air Quality")
+        w_opp = st.slider("🚀 Opportunity", 0, 100, w_opp_val, key="w_opportunity",
+                          help="Education, Healthcare, and Childcare")
+
+        # 3. Normalisation
+        total_weight = w_safety + w_opp
         if total_weight == 0: total_weight = 1
+
         norm_weights = {
-            'greenspace': w_greenspace / total_weight,
-            'air_quality': w_air / total_weight,
             'safety': w_safety / total_weight,
-            'education': w_edu / total_weight,
-            'healthcare': w_health / total_weight,
-            'childcare': w_childcare / total_weight,
+            'opportunity': w_opp / total_weight,
         }
-    st.markdown("---")  # Separator
+
+        # Display breakdown
+        st.caption(
+            f"**Breakdown:** Safety {norm_weights['safety']:.0%}, Opportunity {norm_weights['opportunity']:.0%}")
+
+    st.markdown("---")
 
 #Data Scoring After Controls Set
 norm_weights_tuple = tuple(sorted(norm_weights.items()))
@@ -368,16 +356,12 @@ with right_col:
                 st.progress(int(composite_score))
                 st.markdown("---")
 
-                #Greenspace
-                greenspace_score = ward_row.get('greenspace_score', 0)
+                #Greenspace (Informational Only)
                 greenspace_percent = ward_row.get('greenspace_percentage', 0)
-                col1, col2 = st.columns([3, 2])
-                with col1:
-                    st.markdown("Greenspace Score")
-                with col2:
-                    st.markdown(f"**{greenspace_score:.0f}/100**")
-                st.progress(int(greenspace_score))
-                st.caption(f"Based on {greenspace_percent:.1f}% area coverage")
+                st.markdown("#### 🌳 Greenspace")
+                st.metric(label="Area Coverage", value=f"{greenspace_percent:.1f}%")
+                st.caption("Percentage of land covered by accessible greenspace. (Informational)")
+                st.markdown("---")
 
                 #Air Quality
                 air_quality_score = ward_row.get('air_quality_score', 0)
@@ -453,16 +437,12 @@ with right_col:
                 st.progress(int(composite_score))
                 st.markdown("---")
 
-                #Greenspace
-                greenspace_score = lsoa_row.get('greenspace_score', 0)
+                #Greenspace (Informational Only)
                 greenspace_percent = lsoa_row.get('greenspace_percentage', 0)
-                col1, col2 = st.columns([3, 2])
-                with col1:
-                    st.markdown("Greenspace Score")
-                with col2:
-                    st.markdown(f"**{greenspace_score:.0f}/100**")
-                st.progress(int(greenspace_score))
-                st.caption(f"Based on {greenspace_percent:.1f}% area coverage")
+                st.markdown("#### 🌳 Greenspace")
+                st.metric(label="Area Coverage", value=f"{greenspace_percent:.1f}%")
+                st.caption("Percentage of land covered by accessible greenspace. (Informational)")
+                st.markdown("---")
 
                 #Air Quality
                 air_quality_score = lsoa_row.get('air_quality_score', 0)

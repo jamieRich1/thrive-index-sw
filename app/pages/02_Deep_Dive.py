@@ -125,48 +125,35 @@ with st.sidebar:
 
     st.markdown("---")
 
-    #Score Weighting Expander
+    # Score Weighting Expander (3-Pillar System)
     with st.expander("Customise 'Thrive Score' Weights", expanded=False):
-        st.markdown("Adjust the importance of each category for your 'Thrive Score'.")
-        w_safety_val = st.session_state.get('w_safety', 15)
-        w_greenspace_val = st.session_state.get('w_greenspace', 15)
-        w_air_val = st.session_state.get('w_air', 15)
-        w_edu_val = st.session_state.get('w_edu', 20)
-        w_health_val = st.session_state.get('w_health', 15)
-        w_childcare_val = st.session_state.get('w_childcare', 20)
-        total_weight_val = w_greenspace_val + w_air_val + w_safety_val + w_edu_val + w_health_val + w_childcare_val
-        if total_weight_val == 0: total_weight_val = 1
+        st.markdown("Adjust the balance between the three core pillars.")
 
-        norm_weights_labels = {
-            'greenspace': w_greenspace_val / total_weight_val,
-            'air_quality': w_air_val / total_weight_val,
-            'safety': w_safety_val / total_weight_val,
-            'education': w_edu_val / total_weight_val,
-            'healthcare': w_health_val / total_weight_val,
-            'childcare': w_childcare_val / total_weight_val,
-        }
+        # 1. Set Defaults
+        w_safety_val = st.session_state.get('w_safety', 33)
+        w_opp_val = st.session_state.get('w_opportunity', 34)
+        w_green_val = st.session_state.get('w_greenspace', 33)
 
-        w_safety = st.slider(f"Safety ({norm_weights_labels['safety'] * 100:.1f}%)", 0, 100, w_safety_val, key="w_safety")
-        w_greenspace = st.slider(f"Greenspace ({norm_weights_labels['greenspace'] * 100:.1f}%)", 0, 100, w_greenspace_val,
-                                 key="w_greenspace")
-        w_air = st.slider(f"Air Quality ({norm_weights_labels['air_quality'] * 100:.1f}%)", 0, 100, w_air_val, key="w_air")
-        w_edu = st.slider(f"Education ({norm_weights_labels['education'] * 100:.1f}%)", 0, 100, w_edu_val, key="w_edu")
-        w_health = st.slider(f"Healthcare ({norm_weights_labels['healthcare'] * 100:.1f}%)", 0, 100, w_health_val,
-                             key="w_health")
-        w_childcare = st.slider(f"Childcare ({norm_weights_labels['childcare'] * 100:.1f}%)", 0, 100, w_childcare_val,
-                                key="w_childcare")
+        # 2. The 2 Sliders (Greenspace removed)
+        w_safety = st.slider("🛡️ Safety & Air", 0, 100, w_safety_val, key="w_safety_dd")
+        w_opp = st.slider("🚀 Opportunity", 0, 100, w_opp_val, key="w_opportunity_dd")
 
-        #Normalise weights
-        total_weight = w_greenspace + w_air + w_safety + w_edu + w_health + w_childcare
+        # Hardcode greenspace weight to 0
+        w_green = 0
+
+        # Sync with session state (so changes here update the Map Dashboard too)
+        st.session_state.w_safety = w_safety
+        st.session_state.w_opportunity = w_opp
+        st.session_state.w_greenspace = w_green
+
+        # 3. Normalisation
+        total_weight = w_safety + w_opp + w_green
         if total_weight == 0: total_weight = 1
 
         norm_weights = {
-            'greenspace': w_greenspace / total_weight,
-            'air_quality': w_air / total_weight,
             'safety': w_safety / total_weight,
-            'education': w_edu / total_weight,
-            'healthcare': w_health / total_weight,
-            'childcare': w_childcare / total_weight,
+            'opportunity': w_opp / total_weight,
+            'greenspace': w_green / total_weight,
         }
 
 #Data Scoring Based on Weights
@@ -432,8 +419,10 @@ if st.session_state.get("selected_lsoa_code"):
         st.subheader(f"Indicator Breakdown ({latest_year})")
         ind1, ind2, ind3, ind4, ind5, ind6 = st.columns(6)
         with ind1:
-            st.metric(label="Greenspace", value=f"{lsoa_data.get('greenspace_score', 0):.0f}/100")
-            st.caption(f"{lsoa_data.get('greenspace_percentage', 0):.1f}% area coverage")
+            #Greenspace (Informational Only)
+            greenspace_percent = lsoa_data.get('greenspace_percentage', 0)
+            st.metric(label="Greenspace", value=f"{greenspace_percent:.1f}%")
+            st.caption("Area coverage (Informational)")
         with ind2:
             st.metric(label="Air Quality", value=f"{lsoa_data.get('air_quality_score', 0):.0f}/100")
             st.caption(
@@ -969,8 +958,10 @@ elif st.session_state.get("selected_ward_code"):
         st.subheader(f"Indicator Breakdown (Ward Averages, {latest_year})")
         ind1, ind2, ind3, ind4, ind5, ind6 = st.columns(6)
         with ind1:
-            st.metric(label="Greenspace", value=f"{ward_data.get('greenspace_score', 0):.0f}/100")
-            st.caption(f"{ward_data.get('greenspace_percentage', 0):.1f}% area coverage")
+            #Greenspace (Informational Only)
+            greenspace_percent = ward_data.get('greenspace_percentage', 0)
+            st.metric(label="Greenspace", value=f"{greenspace_percent:.1f}%")
+            st.caption("Area coverage (Informational)")
         with ind2:
             st.metric(label="Air Quality", value=f"{ward_data.get('air_quality_score', 0):.0f}/100")
             st.caption(

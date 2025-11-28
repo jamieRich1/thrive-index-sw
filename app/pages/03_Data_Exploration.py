@@ -27,7 +27,6 @@ latest_year = all_years[0]
 INDICATORS = {
     #Top Level Scores
     'Thrive Index Score': {'col': 'composite_score', 'ascending': False, 'desc': 'The overall composite score.'},
-    'Greenspace Score': {'col': 'greenspace_score', 'ascending': False, 'desc': 'Score based on greenspace coverage.'},
     'Air Quality Score': {'col': 'air_quality_score', 'ascending': False,
                           'desc': 'Score based on NO₂ and PM₂.₅. Higher is better.'},
     'Community Safety Score': {'col': 'community_safety_score', 'ascending': False,
@@ -117,45 +116,33 @@ selected_year = st.sidebar.selectbox(
     index=default_year_index,
     key="selected_year"
 )
-#Customise Thrive Score Weighting
+# Customise Thrive Score Weighting (3-Pillar System)
 with st.sidebar.expander("Customise 'Thrive Score' Weights"):
-    w_safety_val = st.session_state.get('w_safety', 15)
-    w_greenspace_val = st.session_state.get('w_greenspace', 15)
-    w_air_val = st.session_state.get('w_air', 15)
-    w_edu_val = st.session_state.get('w_edu', 20)
-    w_health_val = st.session_state.get('w_health', 15)
-    w_childcare_val = st.session_state.get('w_childcare', 20)
+    st.markdown("Adjust the balance between the three core pillars.")
 
-    total_weight_val = w_greenspace_val + w_air_val + w_safety_val + w_edu_val + w_health_val + w_childcare_val
-    if total_weight_val == 0: total_weight_val = 1
-    norm_weights_labels = {
-        'greenspace': w_greenspace_val / total_weight_val,
-        'air_quality': w_air_val / total_weight_val,
-        'safety': w_safety_val / total_weight_val,
-        'education': w_edu_val / total_weight_val,
-        'healthcare': w_health_val / total_weight_val,
-        'childcare': w_childcare_val / total_weight_val,
-    }
+    # 1. Set Defaults
+    w_safety_val = st.session_state.get('w_safety', 33)
+    w_opp_val = st.session_state.get('w_opportunity', 34)
+    w_green_val = st.session_state.get('w_greenspace', 33)
 
-    w_safety = st.slider(f"Safety ({norm_weights_labels['safety'] * 100:.1f}%)", 0, 100, w_safety_val, key="w_safety")
-    w_greenspace = st.slider(f"Greenspace ({norm_weights_labels['greenspace'] * 100:.1f}%)", 0, 100, w_greenspace_val,
-                             key="w_greenspace")
-    w_air = st.slider(f"Air Quality ({norm_weights_labels['air_quality'] * 100:.1f}%)", 0, 100, w_air_val, key="w_air")
-    w_edu = st.slider(f"Education ({norm_weights_labels['education'] * 100:.1f}%)", 0, 100, w_edu_val, key="w_edu")
-    w_health = st.slider(f"Healthcare ({norm_weights_labels['healthcare'] * 100:.1f}%)", 0, 100, w_health_val,
-                         key="w_health")
-    w_childcare = st.slider(f"Childcare ({norm_weights_labels['childcare'] * 100:.1f}%)", 0, 100, w_childcare_val,
-                            key="w_childcare")
+    # 2. The 3 Sliders
+    w_safety = st.slider("🛡️ Safety & Air", 0, 100, w_safety_val, key="w_safety_de")
+    w_opp = st.slider("🚀 Opportunity", 0, 100, w_opp_val, key="w_opportunity_de")
+    w_green = 0
 
-    total_weight = w_greenspace + w_air + w_safety + w_edu + w_health + w_childcare
+    # Sync with session state
+    st.session_state.w_safety = w_safety
+    st.session_state.w_opportunity = w_opp
+    st.session_state.w_greenspace = w_green
+
+    # 3. Normalisation
+    total_weight = w_safety + w_opp
     if total_weight == 0: total_weight = 1
+
     norm_weights = {
-        'greenspace': w_greenspace / total_weight,
-        'air_quality': w_air / total_weight,
         'safety': w_safety / total_weight,
-        'education': w_edu / total_weight,
-        'healthcare': w_health / total_weight,
-        'childcare': w_childcare / total_weight,
+        'opportunity': w_opp / total_weight,
+        'greenspace': 0
     }
 st.sidebar.markdown("---")
 
