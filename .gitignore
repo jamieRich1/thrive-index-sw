@@ -10,6 +10,7 @@ data/interim/
 data/processed/
 data/production/
 scripts/debug/
+data/analysis_results
 
 .venv/
 venv/
