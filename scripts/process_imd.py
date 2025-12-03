@@ -1,10 +1,9 @@
-# process_imd.py
 import pandas as pd
 from pathlib import Path
 
-print("Starting IMD data processing...")
+print("Starting IMD data processing (RAW VALUES PRESERVED)...")
 
-#Paths and Constants
+# --- PATHS ---
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 RAW_DATA_DIR = PROJECT_DIR / "data" / "raw"
 PROCESSED_DATA_DIR = PROJECT_DIR / "data" / "processed"
@@ -12,13 +11,12 @@ IMD_FILE = RAW_DATA_DIR / "imd" / "imd_2019.csv"
 LSOA_LOOKUP_FILE = RAW_DATA_DIR / "lookups" / "LSOA_(2011)_to_LSOA_(2021)_to_Local_Authority_District_(2022)_Best_Fit_Lookup_for_EW_(V2).csv"
 OUTPUT_FILE = PROCESSED_DATA_DIR / "lsoa_imd.parquet"
 
-#Data Load
+# --- CHECK FILES ---
 if not IMD_FILE.exists() or not LSOA_LOOKUP_FILE.exists():
     print("ERROR: IMD file or LSOA lookup file not found.")
-    print(f"Check for IMD at: {IMD_FILE}")
-    print(f"Check for Lookup at: {LSOA_LOOKUP_FILE}")
     exit()
 
+# --- LOAD DATA ---
 print("Loading IMD 2019 scores from CSV...")
 try:
     df_imd = pd.read_csv(IMD_FILE)
@@ -26,40 +24,55 @@ except Exception as e:
     print(f"ERROR: Could not read IMD CSV file. Error: {e}")
     exit()
 
-#Calc deciles
-print("Calculating deprivation deciles from scores...")
-score_columns = {
-    'Index of Multiple Deprivation (IMD) Score': 'IMD_Decile',
-    'Income Score (rate)': 'Income_Decile',
-    'Employment Score (rate)': 'Employment_Decile',
-    'Health Deprivation and Disability Score': 'Health_Decile',
-    'Income Deprivation Affecting Children Index (IDACI) Score (rate)': 'IDACI_Decile'
+# --- COLUMN MAPPING ---
+# Maps RAW CSV Name -> Your Clean Target Name
+# We keep SCORES and RATES (Floats), not Deciles.
+raw_column_map = {
+    'Index of Multiple Deprivation (IMD) Score': 'IMD_Score',
+    'Income Score (rate)': 'Income_Rate',
+    'Employment Score (rate)': 'Employment_Rate',
+    'Health Deprivation and Disability Score': 'Health_Score',
+    'Income Deprivation Affecting Children Index (IDACI) Score (rate)': 'IDACI_Rate'
 }
 
-for score_col in score_columns.keys():
-    if score_col not in df_imd.columns:
-        print(f"ERROR: Required column '{score_col}' not found in {IMD_FILE.name}")
+# Check columns exist
+for col in raw_column_map.keys():
+    if col not in df_imd.columns:
+        print(f"ERROR: Required column '{col}' not found in CSV.")
         exit()
 
-for score_col, decile_col in score_columns.items():
-    # The rank method='first' handles duplicate scores gracefully
-    df_imd[decile_col] = pd.qcut(df_imd[score_col].rank(method='first'), 10, labels=False) + 1
+# --- EXTRACT RAW VALUES ---
+print("Extracting raw scores...")
+cols_to_select = ['LSOA code (2011)'] + list(raw_column_map.keys())
+df_imd_clean = df_imd[cols_to_select].copy()
 
-#Merge Data
-df_imd_final = df_imd[['LSOA code (2011)'] + list(score_columns.values())].copy()
-df_imd_final.rename(columns={'LSOA code (2011)': 'LSOA11CD'}, inplace=True)
-print("Loading LSOA 2011 to 2021 lookup...")
+# Rename to clean names
+df_imd_clean.rename(columns=raw_column_map, inplace=True)
+df_imd_clean.rename(columns={'LSOA code (2011)': 'LSOA11CD'}, inplace=True)
+
+# --- MERGE GEOGRAPHY ---
+print("Loading LSOA lookup...")
 df_lookup = pd.read_csv(LSOA_LOOKUP_FILE)
 df_lookup = df_lookup[['LSOA11CD', 'LSOA21CD']].drop_duplicates()
-print("Merging IMD data onto 2021 LSOA codes...")
-df_merged = pd.merge(df_lookup, df_imd_final, on='LSOA11CD', how='left')
+
+print("Merging data...")
+df_merged = pd.merge(df_lookup, df_imd_clean, on='LSOA11CD', how='left')
 df_final = df_merged.drop(columns=['LSOA11CD'])
+
+# Rename final geography column
 df_final.rename(columns={'LSOA21CD': 'area_code'}, inplace=True)
 df_final['area_code'] = df_final['area_code'].astype(str).str.strip()
-df_final.dropna(subset=['IMD_Decile'], inplace=True)
-df_final[list(score_columns.values())] = df_final[list(score_columns.values())].astype(int)
 
-#Save
+# --- NO IMPUTATION ---
+# Drop only rows that completely failed to match a geography (no data at all)
+initial_count = len(df_final)
+df_final.dropna(subset=['IMD_Score'], inplace=True)
+final_count = len(df_final)
+
+if initial_count != final_count:
+    print(f"Dropped {initial_count - final_count} rows due to geography mismatch.")
+
+# --- SAVE ---
+# We save as floats (no .astype(int))
 df_final.to_parquet(OUTPUT_FILE, index=False)
-print(f"Success! Saved {len(df_final)} IMD records for 2021 LSOAs to {OUTPUT_FILE}")
-print("IMD data processing finished.")
+print(f"Success! Saved {len(df_final)} raw IMD records to {OUTPUT_FILE}")

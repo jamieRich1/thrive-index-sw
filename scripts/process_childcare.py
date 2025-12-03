@@ -5,256 +5,195 @@ from scipy.spatial import cKDTree
 import numpy as np
 import re
 from datetime import datetime
+import sys
 
-print("Starting childcare provider data processing (RAW EXTRACTION - NO IMPUTATION)...")
+print("Starting childcare data processing (WIDE FORMAT - FIXED)...")
 
-#Paths and Constants
+# --- CONSTANTS ---
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 RAW_DATA_DIR = PROJECT_DIR / "data" / "raw" / "childcare"
 PROCESSED_DATA_DIR = PROJECT_DIR / "data" / "processed"
-CHILDCARE_DATA_PATTERN = "Management_information_-_childcare_providers*.csv"
+CHILDCARE_FILE_PATTERN = "Management_information_-_childcare_providers*.csv"
 LSOA_BOUNDARIES_FILE = PROCESSED_DATA_DIR / "boundaries_lsoa.geoparquet"
-POSTCODE_LOOKUP_FILE = PROCESSED_DATA_DIR / "sw_postcodes.parquet"
+POSTCODE_FILE = PROCESSED_DATA_DIR / "sw_postcodes.parquet"
+
 ANNUAL_SCORES_OUTPUT = PROCESSED_DATA_DIR / "lsoa_annual_childcare_scores.parquet"
 STATIC_DETAILS_OUTPUT = PROCESSED_DATA_DIR / "lsoa_childcare_details.parquet"
-NEAREST_N_PROVIDERS = 3
-YEARS_TO_PROCESS = list(range(2018, 2026)) # This is just for the master grid, not for ffill
+HISTORICAL_OUTPUT = PROCESSED_DATA_DIR / "childcare_historical_data.parquet"
+
+NEAREST_N = 3
+# Force these years to exist in the output
+YEARS_TO_PROCESS = list(range(2018, 2026))
 
 
-# (Helper functions extract_date_from_filename, etc. are identical to your original)
-# ...
 def extract_date_from_filename(filename):
-    """
-    Extracts the date and year from Ofsted filenames.
-    """
     match = re.search(r'as_at_(\d{1,2})_(\w+)_(\d{4})', filename)
-    if not match:
-        return None, None
-
-    day = int(match.group(1))
-    month_str = match.group(2)
-    year = int(match.group(3))
-
+    if not match: return None, None
     try:
-        month = datetime.strptime(month_str, "%B").month
+        dt = datetime.strptime(f"{match.group(1)} {match.group(2)} {match.group(3)}", "%d %B %Y")
+        return dt, dt.year
     except ValueError:
         return None, None
 
-    return datetime(year, month, day), year
+
+def load_childcare_data():
+    print("  -> Loading childcare files...")
+    files = list(RAW_DATA_DIR.glob(CHILDCARE_FILE_PATTERN))
+    all_data = []
+
+    target_cols = {
+        'provider urn': 'urn', 'provider name': 'name', 'provider postcode': 'postcode',
+        'most recent full: overall effectiveness': 'rating_str', 'places': 'places'
+    }
+
+    for f in files:
+        dt, year = extract_date_from_filename(f.name)
+        if not year: continue
+
+        try:
+            headers_actual = pd.read_csv(f, nrows=0, encoding='utf-8-sig').columns
+            headers_map = {h.lower(): h for h in headers_actual}
+
+            use_cols = []
+            rename_map = {}
+            for target_low, target_clean in target_cols.items():
+                if target_low in headers_map:
+                    actual = headers_map[target_low]
+                    use_cols.append(actual)
+                    rename_map[actual] = target_clean
+
+            if len(use_cols) < len(target_cols):
+                if 'urn' not in rename_map.values() or 'postcode' not in rename_map.values():
+                    print(f"Skipping {f.name}: Missing URN or Postcode.")
+                    continue
+
+            df = pd.read_csv(f, usecols=use_cols, encoding='utf-8-sig', dtype=str, low_memory=False)
+            df.rename(columns=rename_map, inplace=True)
+            df['year'] = year
+            df['file_date'] = dt
+            all_data.append(df)
+        except Exception as e:
+            print(f"Skipping {f.name}: {e}")
+
+    if not all_data: return None
+
+    master_df = pd.concat(all_data, ignore_index=True)
+
+    if 'places' in master_df.columns:
+        master_df['places'] = pd.to_numeric(master_df['places'].str.replace(',', ''), errors='coerce').fillna(0).astype(
+            int)
+    else:
+        master_df['places'] = 0
+
+    if 'rating_str' in master_df.columns:
+        rating_map = {'1': 4, '2': 3, '3': 2, '4': 1}
+        master_df['quality_score'] = master_df['rating_str'].astype(str).str[0].map(rating_map)
+    else:
+        master_df['quality_score'] = np.nan
+
+    master_df = master_df.sort_values('file_date').drop_duplicates(subset=['urn', 'year'], keep='last')
+    return master_df
 
 
-#Load Data
-print("Loading and preparing all Ofsted childcare provider files...")
-all_files = list(RAW_DATA_DIR.glob(CHILDCARE_DATA_PATTERN))
-if not all_files:
-    print(f"ERROR: No Ofsted childcare files found matching '{CHILDCARE_DATA_PATTERN}' in {RAW_DATA_DIR}")
-    exit()
+def geocode_childcare(df):
+    print("  -> Geocoding childcare...")
+    postcodes = pd.read_parquet(POSTCODE_FILE)
+    df['postcode_clean'] = df['postcode'].str.replace(' ', '').str.upper()
+    postcodes['Postcode'] = postcodes['Postcode'].str.replace(' ', '').str.upper()
 
-cols_to_use = [
-    'Provider URN',
-    'Provider Name',
-    'Provider Postcode',
-    'Most Recent Full: Overall Effectiveness',
-    'Places'
-]
+    merged = df.merge(postcodes, left_on='postcode_clean', right_on='Postcode', how='inner')
+    return gpd.GeoDataFrame(
+        merged, geometry=gpd.points_from_xy(merged.longitude, merged.latitude), crs="EPSG:4326"
+    ).to_crs("EPSG:27700")
 
-all_childcare_data = []
 
-for file_path in all_files:
-    file_date, file_year = extract_date_from_filename(file_path.name)
-    if not file_date:
-        print(f"Warning: Could not parse date from {file_path.name}. Skipping.")
-        continue
+def process_nearest_childcare(lsoa_gdf, childcare_gdf):
+    print("  -> Calculating nearest childcare...")
+    lsoa_coords = np.array(list(zip(lsoa_gdf.geometry.centroid.x, lsoa_gdf.geometry.centroid.y)))
+    all_years_rows = []
 
-    try:
-        df = pd.read_csv(
-            file_path,
-            encoding='utf-8-sig',
-            low_memory=False,
-            dtype=str
-        )
-        if not all(col in df.columns for col in cols_to_use):
-            print(f"Warning: {file_path.name} is missing one or more key columns. Skipping.")
-            print(f"   Missing: {[col for col in cols_to_use if col not in df.columns]}")
-            continue
+    # 1. Process available years
+    available_years = sorted(childcare_gdf['year'].unique())
+    print(f"     Found data for years: {available_years}")
 
-        df = df[cols_to_use].copy()
-        df['file_date'] = file_date
-        df['year'] = file_year
-        all_childcare_data.append(df)
+    for year in available_years:
+        providers = childcare_gdf[childcare_gdf['year'] == year]
+        if providers.empty: continue
 
-    except Exception as e:
-        print(f"ERROR: Could not read {file_path.name}. Error: {e}")
+        prov_coords = np.array(list(zip(providers.geometry.x, providers.geometry.y)))
+        tree = cKDTree(prov_coords)
+        dists, indices = tree.query(lsoa_coords, k=NEAREST_N)
 
-if not all_childcare_data:
-    print("ERROR: No valid childcare data was loaded. Exiting.")
-    exit()
+        for i, lsoa_code in enumerate(lsoa_gdf['area_code']):
+            for rank in range(NEAREST_N):
+                idx = indices[i][rank]
+                dist = dists[i][rank] / 1000.0
+                prov = providers.iloc[idx]
 
-master_df = pd.concat(all_childcare_data, ignore_index=True)
-print(f"Loaded {len(master_df):,} total rows from {len(all_files)} files.")
+                all_years_rows.append({
+                    'area_code': lsoa_code,
+                    'year': year,
+                    'rank': rank + 1,
+                    'urn': prov['urn'],
+                    'name': prov['name'],
+                    'quality_score': prov['quality_score'],
+                    'rating_str': prov.get('rating_str', 'N/A'),
+                    'places': prov['places'],
+                    'distance': dist
+                })
 
-#Rename columns
-master_df = master_df.rename(columns={
-    'Provider URN': 'provider_urn',
-    'Provider Name': 'provider_name',
-    'Provider Postcode': 'PCODE',
-    'Most Recent Full: Overall Effectiveness': 'quality_rating',
-    'Places': 'places'
-})
+    long_df = pd.DataFrame(all_years_rows)
 
-#Clean Data and Create master DF
-for col in ['provider_urn', 'provider_name', 'PCODE', 'quality_rating', 'places']:
-    master_df[col] = master_df[col].str.strip().str.strip('"')
-master_df.dropna(subset=['PCODE'], inplace=True)
-master_df = master_df[master_df['PCODE'].str.upper() != 'REDACTED']
-master_df['places'] = pd.to_numeric(
-    master_df['places'].str.replace(',', '', regex=False),
-    errors='coerce'
-)
-master_df.dropna(subset=['places'], inplace=True)
-master_df['places'] = master_df['places'].astype(int)
-master_df['quality_score_raw'] = pd.to_numeric(master_df['quality_rating'], errors='coerce')
-master_df.dropna(subset=['quality_score_raw'], inplace=True)
+    # 2. Pivot to Wide Format
+    pivot_df = long_df.pivot_table(
+        index=['area_code', 'year'],
+        columns='rank',
+        values=['quality_score', 'places', 'distance', 'name', 'rating_str', 'urn'],
+        aggfunc='first'
+    )
+    pivot_df.columns = [f"childcare_{col[1]}_{col[0]}" for col in pivot_df.columns]
+    pivot_df = pivot_df.reset_index()
 
-#Remap Scores
-quality_remapping = {
-    1.0: 4,  # Outstanding
-    2.0: 3,  # Good
-    3.0: 2,  # Requires improvement
-    4.0: 1  # Inadequate
-}
-master_df['quality_score'] = master_df['quality_score_raw'].map(quality_remapping)
-master_df.dropna(subset=['quality_score'], inplace=True)
-master_df['quality_score'] = master_df['quality_score'].astype(int)
+    # 3. FILL MISSING YEARS (The Fix)
+    # We create a complete grid of LSOA x Years
+    print("  -> Filling missing years (Forward/Back filling)...")
+    lsoas = pivot_df['area_code'].unique()
+    # Use the YEARS_TO_PROCESS constant to ensure we cover 2018-2025
+    full_index = pd.MultiIndex.from_product([lsoas, YEARS_TO_PROCESS], names=['area_code', 'year'])
 
-#Keep latest record per provider per year
-print("Deduplicating data: keeping latest entry per provider per year...")
-master_df = master_df.sort_values(by='file_date', ascending=True)
-master_df = master_df.drop_duplicates(subset=['provider_urn', 'year'], keep='last')
-print(f"Loaded {len(master_df):,} valid, deduplicated provider records.")
+    # Reindex the pivot table to this full grid
+    pivot_df = pivot_df.set_index(['area_code', 'year']).reindex(full_index)
 
-#Lad Geospatial Data and locate providers
-print("Loading LSOA boundaries and postcode locations...")
-lsoa_gdf = gpd.read_parquet(LSOA_BOUNDARIES_FILE)
-postcode_df = pd.read_parquet(POSTCODE_LOOKUP_FILE)
-postcode_gdf = gpd.GeoDataFrame(
-    postcode_df,
-    geometry=gpd.points_from_xy(postcode_df.longitude, postcode_df.latitude),
-    crs="EPSG:4326"
-)
-master_df['PCODE_clean'] = master_df['PCODE'].astype(str).str.replace(' ', '').str.upper()
-postcode_gdf['Postcode_clean'] = postcode_gdf['Postcode'].astype(str).str.replace(' ', '').str.upper()
+    # Forward Fill then Back Fill to handle years with no data files
+    # This assumes if we don't have 2018 data, 2019 data is the best proxy
+    pivot_df = pivot_df.groupby('area_code').ffill().bfill()
 
-childcare_gdf = master_df.merge(
-    postcode_gdf,
-    left_on='PCODE_clean',
-    right_on='Postcode_clean',
-    how='inner'
-)
-childcare_gdf = gpd.GeoDataFrame(childcare_gdf, geometry='geometry', crs="EPSG:4326")
-print(f"Successfully geocoded {len(childcare_gdf)} provider records in the South West.")
+    return pivot_df.reset_index()
 
-if childcare_gdf.empty:
-    print(f"ERROR: No matching providers found after geocoding.")
-    exit()
 
-#Time Series
-print("Re-projecting coordinates for accurate calculations (EPSG:27700)...")
-lsoa_gdf_proj = lsoa_gdf.to_crs("EPSG:27700")
-childcare_gdf_proj = childcare_gdf.to_crs("EPSG:27700")
-lsoa_gdf_proj['centroid'] = lsoa_gdf_proj.geometry.centroid
-lsoa_coords = np.array(list(lsoa_gdf_proj.centroid.apply(lambda p: (p.x, p.y))))
+if __name__ == "__main__":
+    raw_df = load_childcare_data()
+    if raw_df is None: sys.exit("Error loading data.")
+    gdf = geocode_childcare(raw_df)
 
-all_annual_scores = []
-static_details_results = []
-available_years = sorted(childcare_gdf_proj['year'].unique())
-latest_year = available_years[-1]
+    gdf[['urn', 'year', 'name', 'rating_str', 'places']].rename(
+        columns={'urn': 'Provider URN', 'name': 'Provider Name', 'rating_str': 'quality_rating'}
+    ).to_parquet(HISTORICAL_OUTPUT, index=False)
 
-print(f"Found data for years: {available_years}. Latest year is {latest_year}.")
-print(f"Calculating metrics from the {NEAREST_N_PROVIDERS} nearest providers for each LSOA, for each year...")
+    lsoa_gdf = gpd.read_parquet(LSOA_BOUNDARIES_FILE).to_crs("EPSG:27700")
+    wide_df = process_nearest_childcare(lsoa_gdf, gdf)
 
-for year in available_years:
-    print(f"  -> Processing year: {year}")
+    wide_df.to_parquet(ANNUAL_SCORES_OUTPUT, index=False)
+    print(f"Saved annual scores to {ANNUAL_SCORES_OUTPUT}")
 
-    providers_this_year = childcare_gdf_proj[childcare_gdf_proj['year'] == year]
+    latest_year = wide_df['year'].max()
+    static_df = wide_df[wide_df['year'] == latest_year].copy()
 
-    if providers_this_year.empty:
-        print(f"  -> No providers found for {year}. Skipping.")
-        continue
+    rename_map = {}
+    for i in range(1, NEAREST_N + 1):
+        rename_map[f'childcare_{i}_rating_str'] = f'childcare_{i}_quality_rating'
+        rename_map[f'childcare_{i}_distance'] = f'childcare_{i}_distance_km'
 
-    provider_coords = np.array(list(providers_this_year.geometry.apply(lambda p: (p.x, p.y))))
-    kdtree = cKDTree(provider_coords)
-
-    distances_m, indices = kdtree.query(lsoa_coords, k=NEAREST_N_PROVIDERS)
-
-    for i, lsoa_row in lsoa_gdf.iterrows():
-        nearest_provider_indices = indices[i]
-        nearest_distances_m = distances_m[i]
-
-        nearest_providers_df = providers_this_year.iloc[nearest_provider_indices]
-
-        #Key Metrics
-        avg_quality = nearest_providers_df['quality_score'].mean()
-        avg_distance_km = (nearest_distances_m.mean()) / 1000.0
-        total_places_nearby = nearest_providers_df['places'].sum()
-
-        annual_row = {
-            'area_code': lsoa_row['area_code'],
-            'year': year,
-            'avg_childcare_quality_score': avg_quality,
-            'avg_distance_to_childcare_km': avg_distance_km,
-            'total_childcare_places_nearby': total_places_nearby
-        }
-        all_annual_scores.append(annual_row)
-
-        if year == latest_year:
-            static_row = {'area_code': lsoa_row['area_code']}
-            for n in range(NEAREST_N_PROVIDERS):
-                provider_info = nearest_providers_df.iloc[n]
-                distance_km = nearest_distances_m[n] / 1000.0
-
-                static_row[f'childcare_{n + 1}_name'] = provider_info['provider_name']
-                static_row[f'childcare_{n + 1}_quality_rating'] = provider_info['quality_rating']
-                static_row[f'childcare_{n + 1}_places'] = provider_info['places']
-                static_row[f'childcare_{n + 1}_distance_km'] = distance_km
-                static_row[f'childcare_{n + 1}_urn'] = provider_info['provider_urn']
-            static_details_results.append(static_row)
-
-annual_scores_df = pd.DataFrame(all_annual_scores)
-static_details_df = pd.DataFrame(static_details_results)
-
-# Create the full 2018-2025 grid
-print("Creating master 2018-2025 grid...")
-master_index = pd.MultiIndex.from_product(
-    [lsoa_gdf['area_code'].unique(), YEARS_TO_PROCESS],
-    names=['area_code', 'year']
-)
-final_scores_df = pd.DataFrame(index=master_index).reset_index()
-
-# Merge the sparse annual scores, leaving NaNs for missing years
-final_scores_df = final_scores_df.merge(
-    annual_scores_df,
-    on=['area_code', 'year'],
-    how='left'
-)
-
-#Save Files
-historical_cols = {
-    'provider_urn': 'provider_urn',
-    'year': 'year',
-    'provider_name': 'provider_name',
-    'quality_rating': 'quality_rating',
-    'places': 'places'
-}
-historical_df = childcare_gdf[historical_cols.keys()].rename(columns=historical_cols)
-historical_df = historical_df.drop_duplicates(subset=['provider_urn', 'year'])
-historical_df.to_parquet(PROCESSED_DATA_DIR / "childcare_historical_data.parquet", index=False)
-print(f"✅ Success! Saved HISTORICAL provider data to childcare_historical_data.parquet")
-
-final_scores_df.to_parquet(ANNUAL_SCORES_OUTPUT, index=False)
-print(
-    f"Success! Saved SPARSE ANNUAL scores for {len(final_scores_df['area_code'].unique())} LSOAs to {ANNUAL_SCORES_OUTPUT.name}")
-static_details_df.to_parquet(STATIC_DETAILS_OUTPUT, index=False)
-print(
-    f"Success! Saved STATIC details (from {latest_year}) for {len(static_details_df)} LSOAs to {STATIC_DETAILS_OUTPUT.name}")
-print("Script finished.")
+    static_df.rename(columns=rename_map, inplace=True)
+    static_df.to_parquet(STATIC_DETAILS_OUTPUT, index=False)
+    print("Done.")

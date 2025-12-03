@@ -682,7 +682,9 @@ if st.session_state.get("selected_lsoa_code"):
                 chart_data = hist_df[hist_df['provider_urn'].isin(unique_urns)].copy()
                 if not chart_data.empty:
                     provider_names_df = childcare_df[['Provider Name', 'provider_urn']].drop_duplicates()
-                    chart_data = chart_data.merge(provider_names_df, on='provider_urn', how='left')
+                    # Use suffixes to keep the new 'Provider Name' as-is, and rename the old one to '_old'
+                    chart_data = chart_data.merge(provider_names_df, on='provider_urn', how='left',
+                                                  suffixes=('_old', ''))
                     chart_data['Quality'] = chart_data['quality_rating'].astype(str).str.lower().map(
                         OFSTED_RATING_MAP).fillna('N/A')
                     chart_data['Places'] = pd.to_numeric(chart_data['places'], errors='coerce').fillna(0).astype(
@@ -1236,7 +1238,9 @@ elif st.session_state.get("selected_ward_code"):
                 chart_data = hist_df[hist_df['provider_urn'].isin(unique_urns)].copy()
                 if not chart_data.empty:
                     provider_names_df = ward_childcare_df[['Provider Name', 'provider_urn']].drop_duplicates()
-                    chart_data = chart_data.merge(provider_names_df, on='provider_urn', how='left')
+                    # Use suffixes to keep the new 'Provider Name' as-is, and rename the old one to '_old'
+                    chart_data = chart_data.merge(provider_names_df, on='provider_urn', how='left',
+                                                  suffixes=('_old', ''))
                     chart_data['Quality'] = chart_data['quality_rating'].astype(str).str.lower().map(
                         OFSTED_RATING_MAP).fillna('N/A')
                     chart_data['Places'] = pd.to_numeric(chart_data['places'], errors='coerce').fillna(0).astype(

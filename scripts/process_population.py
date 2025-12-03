@@ -87,7 +87,8 @@ try:
 
     # Save
     print("Step 5: Cleaning and saving the processed file...")
-    trimmed_pop_df['population'] = pd.to_numeric(trimmed_pop_df['population'], errors='coerce').fillna(0).astype(int)
+    # Convert to numeric, force errors to NaN, leave as Float (Nullable)
+    trimmed_pop_df['population'] = pd.to_numeric(trimmed_pop_df['population'], errors='coerce')
     trimmed_pop_df['area_code'] = trimmed_pop_df['area_code'].astype(str).str.strip()
     trimmed_pop_df['year'] = trimmed_pop_df['year'].astype(int)
     final_df = trimmed_pop_df[['area_code', 'year', 'population']]
