@@ -29,10 +29,10 @@ OPPORTUNITY_FULL = [
     'avg_primary_scaled_score',
     'avg_ks2_pass_rate',
     'avg_progress_8',
-    'avg_attainment_8',
+    #'avg_attainment_8',
     'avg_gp_satisfaction',
     'avg_childcare_quality_score',
-    'greenspace_percentage',
+    #'greenspace_percentage',
     'IDACI_Rate'
 ]
 # Combined List
@@ -96,7 +96,6 @@ def plot_variance_diagnostics(pca, output_path):
     plt.subplot(1, 2, 2)
     plt.plot(x_indices, cumulative_variances, marker='s', linestyle='-', color='green', linewidth=2)
     plt.xticks(x_indices, x_labels)
-    plt.axhline(y=0.65, color='red', linestyle='--', label='65% Threshold')  # Reference line
     plt.title('Cumulative Variance Explained')
     plt.xlabel('Principal Component')
     plt.ylabel('Cumulative Proportion')
@@ -184,7 +183,7 @@ def plot_loadings_heatmap(pca, feature_names, output_path):
     Visualizes the first 4 PCs as a heatmap to see variable contributions.
     """
     # Extract first 4 components
-    loadings = pca.components_[:4].T
+    loadings = pca.components_[:5].T
 
     plt.figure(figsize=(10, 8))
     sns.heatmap(
@@ -193,16 +192,16 @@ def plot_loadings_heatmap(pca, feature_names, output_path):
         cmap='coolwarm',
         center=0,
         fmt='.2f',
-        xticklabels=['PC1', 'PC2', 'PC3', 'PC4'],
+        xticklabels=['PC1', 'PC2', 'PC3', 'PC4', 'PC5'],
         yticklabels=feature_names
     )
-    plt.title("Figure 7: Variable Loadings on First 4 Principal Components")
+    plt.title("Figure 7: Variable Loadings on First 5 Principal Components")
     plt.tight_layout()
     plt.savefig(output_path)
     print(f"    -> Heatmap saved: {output_path.name}")
 
 
-def perform_cluster_analysis(df_year, k=4, pca_input=None):
+def perform_cluster_analysis(df_year, k=3, pca_input=None):
     """
     Runs K-Means clustering.
     If 'pca_input' is provided, it clusters based on those components (Best Practice).
@@ -289,6 +288,8 @@ def main():
     for i, var in enumerate(exp_var[:5]):
         print(f"- PC{i + 1}: {var:.1%}")
     print(f"- Cumulative (First 2): {(exp_var[0] + exp_var[1]):.1%}")
+    print(f"- Cumulative (First 3): {(exp_var[0] + exp_var[1] + exp_var[2]):.1%}")
+    print(f"- Cumulative (First 4): {(exp_var[0] + exp_var[1] + exp_var[2] + exp_var[3]):.1%}")
 
     print("\n" + "=" * 40)
     print("PCA LOADINGS (Variable Contributions)")
@@ -302,11 +303,18 @@ def main():
     )
 
     # Print the first 4 PCs
-    print(loadings_df.iloc[:, :4])
+    print(loadings_df.iloc[:, :5])
 
     # Optional: Save to CSV for easier inspection
-    loadings_df.iloc[:, :4].to_csv(OUTPUT_DIR / "pca_loadings_first_4.csv")
+    loadings_df.iloc[:, :5].to_csv(OUTPUT_DIR / "pca_loadings_first_4.csv")
     print(f"\n-> Detailed loadings saved to: {OUTPUT_DIR / 'pca_loadings_first_4.csv'}")
+
+    #Kaiser Criterion
+    eigenvalues = pca.explained_variance_  # The actual variance of each component
+    print("\nPCA Eigenvalues (Kaiser Criterion)")
+    for i, eigen in enumerate(eigenvalues):
+        kaiser_pass = " (PASS)" if eigen >= 1.0 else ""
+        print(f"- PC{i + 1}: {eigen:.2f}{kaiser_pass}")
 
     #Scree and Cumulative Variance Plots
     plot_variance_diagnostics(

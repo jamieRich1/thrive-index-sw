@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import sys
 
-print("Starting ANNUAL population data processing (RAW EXTRACTION - NO IMPUTATION)...")
+print("Starting ANNUAL population data processing")
 
 #Paths and Constants
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -20,27 +20,21 @@ try:
     lsoa_gdf = gpd.read_parquet(LSOA_BOUNDARIES_FILE)
     required_lsoa_codes = set(lsoa_gdf['area_code'].unique())
     print(f"Found {len(required_lsoa_codes)} unique LSOAs used in the app.")
-
     print(f"Step 2: Loading ALL raw population files from {RAW_POP_DIR}...")
     pop_files = list(RAW_POP_DIR.glob("*.csv"))
-
     if not pop_files:
         print(f"ERROR: No raw population CSV files found in {RAW_POP_DIR}. Exiting.")
         sys.exit(1)
     all_pop_data = []
-
     for f in pop_files:
         match = re.search(r'(\d{4})', f.stem)
         if not match:
             print(f"Warning: Could not extract year from filename {f.name}. Skipping.")
             continue
-
         year = int(match.group(1))
         print(f"  -> Processing {f.name} for year {year}...")
-
         # Add encoding='utf-8-sig' to handle the 'ï»¿' Byte Order Mark (BOM)
         pop_df = pd.read_csv(f, thousands=',', encoding='utf-8-sig')
-
         # Normalize all column names IN-PLACE first.
         pop_df.columns = [col.lower().strip() for col in pop_df.columns]
         if 'lsoa 2021 code' in pop_df.columns:
@@ -51,25 +45,20 @@ try:
             print(f"  -> ERROR: Could not find 'lsoa 2021 code' or 'lsoa21cd' in {f.name}. Skipping.")
             print(f"     Available columns: {pop_df.columns.tolist()}")
             continue
-
         if 'total' in pop_df.columns:
             total_col = 'total'
-        elif 'all ages' in pop_df.columns:  # Another common name
+        elif 'all ages' in pop_df.columns:
             total_col = 'all ages'
         else:
             print(f"  -> ERROR: Could not find 'total' or 'all ages' column in {f.name}. Skipping.")
             print(f"     Available columns: {pop_df.columns.tolist()}")
             continue
-
         print(f"  -> Found columns: '{lsoa_col}' and '{total_col}'")
-
         # Select and rename the correct columns
         pop_df = pop_df[[lsoa_col, total_col]].copy()
         pop_df = pop_df.rename(columns={lsoa_col: 'area_code', total_col: 'population'})
-
         pop_df['year'] = year
         all_pop_data.append(pop_df)
-
     if not all_pop_data:
         print("ERROR: No population data was successfully processed. Exiting.")
         sys.exit(1)
@@ -81,10 +70,8 @@ try:
     print("Step 4: Trimming population data to match the app's LSOAs...")
     trimmed_pop_df = combined_pop_df[combined_pop_df['area_code'].isin(required_lsoa_codes)].copy()
     print(f"Trimmed to {len(trimmed_pop_df):,} records for the South West.")
-
     if trimmed_pop_df.empty:
         print("WARNING: No matching LSOAs found. The output file will be empty.")
-
     # Save
     print("Step 5: Cleaning and saving the processed file...")
     # Convert to numeric, force errors to NaN, leave as Float (Nullable)
