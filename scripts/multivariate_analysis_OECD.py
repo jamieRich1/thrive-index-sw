@@ -22,7 +22,7 @@ TARGET_YEAR = YEARS_TO_ANALYZE[0]
 
 # Safety
 SAFETY_VARS = [
-    'crime_count',
+    'crime_rate_per_1000',
     'no2_mean_concentration',
     'pm25_mean_concentration'
 ]
@@ -43,7 +43,7 @@ ECONOMIC_VARS = [
 ALL_VARS = SAFETY_VARS + OPPORTUNITY_VARS + ECONOMIC_VARS
 # Variables requiring inversion (High value = Bad outcome)
 NEGATIVE_VARS = [
-    'crime_count',
+    'crime_rate_per_1000',
     'no2_mean_concentration',
     'pm25_mean_concentration',
     'Income_Rate',
@@ -82,6 +82,15 @@ def get_standardized_data(df, variable_list):
     scaler = StandardScaler()
     data_std = scaler.fit_transform(df_subset)
     return pd.DataFrame(data_std, columns=valid_vars, index=df_subset.index)
+
+def calculate_crime_rate(df):
+    """Derives the crime rate per 1000 people."""
+    if 'crime_count' in df.columns and 'population' in df.columns:
+        safe_population = df['population'].replace(0, 1).fillna(1)
+        df['crime_rate_per_1000'] = (df['crime_count'] / safe_population) * 1000
+    else:
+        df['crime_rate_per_1000'] = df['crime_count']
+    return df
 
 def plot_scree_cumulative_single(result, output_path, year):
     """Plots the Scree Plot and Cumulative Variance Plot side-by-side."""
@@ -266,6 +275,7 @@ def main():
         print(f"Error: No data found for {year}.")
         return
     if 'area_code' in df_year.columns: df_year = df_year.set_index('area_code')
+    df_year = calculate_crime_rate(df_year)
     std_all = get_standardized_data(df_year, ALL_VARS)
     if std_all.empty:
         print("Error: Standardized data is empty after dropping NaNs.")
