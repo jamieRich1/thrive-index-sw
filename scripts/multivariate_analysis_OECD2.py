@@ -12,9 +12,9 @@ from matplotlib.colors import ListedColormap
 import numpy as np
 
 #Paths and Constants
-PROJECT_DIR = Path(__file__).resolve().parent.parent if '__file__' in locals() else Path.cwd().parent
+PROJECT_DIR = Path(__file__).resolve().parent.parent
 DATA_FILE = PROJECT_DIR / "data" / "processed" / "lsoa_annual_indicators_all_runs.parquet"
-OUTPUT_BASE_DIR = PROJECT_DIR / "data" / "analysis_results_2024_refined"  # NEW OUTPUT DIR FOR TEST
+OUTPUT_BASE_DIR = PROJECT_DIR / "data" / "analysis_results_2024_refined"
 OUTPUT_BASE_DIR.mkdir(parents=True, exist_ok=True)
 plt.style.use('seaborn-v0_8-whitegrid')
 YEARS_TO_ANALYZE = [2024]
@@ -26,36 +26,30 @@ SOCIO_ECONOMIC_VARS = [
     'Employment_Rate',
     'crime_rate_per_1000',
 ]
-
 # PC2: Environmental Safety
 ENVIRONMENTAL_SAFETY_VARS = [
     'no2_mean_concentration',
     'pm25_mean_concentration'
 ]
-
 # PC3: Secondary Education
 SECONDARY_EDUCATION_VARS = [
     'secondary_progress_8_weighted',
     'secondary_attainment_8_weighted',
 ]
-
 # PC4: Primary Education
 PRIMARY_EDUCATION_VARS = [
     'primary_read_score_weighted',
     'primary_math_score_weighted',
 ]
-
 # PC5: Childcare Quality
 CHILDCARE_QUALITY_VARS = [
     'avg_childcare_quality_score',
 ]
-
 # All variables
 ALL_VARS = (
         SOCIO_ECONOMIC_VARS + PRIMARY_EDUCATION_VARS + SECONDARY_EDUCATION_VARS +
         ENVIRONMENTAL_SAFETY_VARS + CHILDCARE_QUALITY_VARS
 )
-
 # Variables requiring inversion (High value = Bad outcome)
 NEGATIVE_VARS = [
     'crime_rate_per_1000',

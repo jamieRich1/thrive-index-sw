@@ -12,7 +12,7 @@ from matplotlib.colors import ListedColormap
 import numpy as np
 
 #Paths and Constants
-PROJECT_DIR = Path(__file__).resolve().parent.parent if '__file__' in locals() else Path.cwd().parent
+PROJECT_DIR = Path(__file__).resolve().parent.parent
 DATA_FILE = PROJECT_DIR / "data" / "processed" / "lsoa_annual_indicators_all_runs.parquet"
 OUTPUT_BASE_DIR = PROJECT_DIR / "data" / "analysis_results_2024_baseline"
 OUTPUT_BASE_DIR.mkdir(parents=True, exist_ok=True)
@@ -328,19 +328,14 @@ def main():
     result = results[year]
     print("Generating Scree and Cumulative Variance Plot (Combined)...")
     plot_scree_cumulative_single(result, OUTPUT_BASE_DIR / "pca_scree_cumulative_2024.png", year)
-
     print("Generating Biplot...")
     plot_biplot_single(result, OUTPUT_BASE_DIR / "pca_biplot_2024.png", year)
-
     print("Generating Loadings Heatmap...")
     plot_heatmap_single(result, OUTPUT_BASE_DIR / "pca_loadings_2024.png", year)
-
     print("Generating Cluster Means (Profile) Plot...")
     plot_means_single(result, OUTPUT_BASE_DIR / "cluster_means_2024.png", year)
-
     print("Generating Cluster Scatter Plot...")
     plot_scatter_single(result, OUTPUT_BASE_DIR / "cluster_scatter_2024.png", year)
-
     print("Generating Geographic Map...")
     plot_map_single(result, OUTPUT_BASE_DIR / "cluster_map_2024.png", PROJECT_DIR, year)
 
