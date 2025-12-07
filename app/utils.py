@@ -268,7 +268,7 @@ def load_master_data():
     #Part 2 - Load the master annual indicators file
     if not LSOA_ANNUAL_INDICATORS_FILE.exists():
         st.error(f"Master data file not found: {LSOA_ANNUAL_INDICATORS_FILE.name}")
-        st.info("Please run `scripts/build_master_timeseries.py` to create it.")
+        st.info("Please run `scripts/imputation_engine.py` to create it.")
         st.stop()
     master_df = pd.read_parquet(LSOA_ANNUAL_INDICATORS_FILE)
 

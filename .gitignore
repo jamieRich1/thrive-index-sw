@@ -11,6 +11,8 @@ data/processed/
 data/production/
 scripts/debug/
 data/analysis_results
+data/analysis_results_2024_baseline
+data/analysis_results_2024_refined
 
 .venv/
 venv/
