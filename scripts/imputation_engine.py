@@ -2,12 +2,11 @@ import pandas as pd
 import geopandas as gpd
 from pathlib import Path
 import sys
-import numpy as np
-from sklearn.experimental import enable_iterative_imputer  # noqa
+from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 
 print("Starting Master Data Build")
-#Paths and Constants
+# Paths and Constants
 N_IMPUTATIONS = 5
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 PROCESSED_DATA_DIR = PROJECT_DIR / "data" / "processed"
@@ -25,7 +24,7 @@ ANNUAL_SECONDARY_SCORES_FILE = PROCESSED_DATA_DIR / "lsoa_annual_secondary_weigh
 OUTPUT_FILE_ALL_RUNS = PROCESSED_DATA_DIR / "lsoa_annual_indicators_all_runs.parquet"
 YEARS = [2024]
 
-#Helpers
+# Helpers
 def load_and_merge_file(master_df, file_path, on_cols, file_desc, cols_to_drop=None):
     if file_path.exists():
         print(f"  -> Loading {file_desc}...")
@@ -72,10 +71,10 @@ def calculate_intermediate_aggregates(df):
     if cc_place_cols: df['total_childcare_places_nearby'] = df[cc_place_cols].sum(axis=1)
     return df
 
-#Main
+# Main
 def main():
     try:
-        #Load and Merge Data
+        # Load and Merge Data
         print("Step 1: Creating master grid...")
         lsoa_gdf = gpd.read_parquet(LSOA_BOUNDARIES_FILE)
         lsoa_codes = lsoa_gdf['area_code'].unique()
@@ -101,7 +100,7 @@ def main():
         if 'annualized_crime_count' in master_df.columns:
             master_df = master_df.rename(columns={'annualized_crime_count': 'crime_count'})
 
-        #Propagate Static Data
+        # Propagate Static Data
         print("Step 3: Propagating static data...")
         propagate_cols = [
             'greenspace_percentage', 'IMD_Score', 'Income_Rate', 'Employment_Rate',
@@ -113,7 +112,7 @@ def main():
             master_df['population'] = master_df.groupby('area_code')['population'].ffill()
             master_df['population'] = master_df.groupby('year')['population'].transform(lambda x: x.fillna(x.median()))
 
-        #Imputation
+        # Imputation
         print("\nStep 4: Running INDIVIDUAL Year MICE Imputation...")
         impute_cols = generate_impute_list(master_df)
         print(f"  -> Variables to impute: {len(impute_cols)}")
@@ -125,7 +124,7 @@ def main():
                 print(f"      Warning: No data for {year}, skipping.")
                 continue
 
-            #Prepare Data
+            # Prepare Data
             data_to_impute = year_df[impute_cols].copy()
             valid_cols_for_year = data_to_impute.columns[data_to_impute.notna().any()].tolist()
             if len(valid_cols_for_year) < len(impute_cols):
@@ -133,7 +132,7 @@ def main():
                 print(f"      Note: {len(dropped)} columns are 100% empty in {year} and will be skipped.")
                 data_to_impute = data_to_impute[valid_cols_for_year]
 
-            #Imputation Loop (5 Runs for this specific year)
+            # Imputation Loop (5 Runs for this specific year)
             for i in range(N_IMPUTATIONS):
                 print(f"      Run {i + 1}/{N_IMPUTATIONS}...", end='\r')
                 imputer = IterativeImputer(max_iter=10, sample_posterior=True, random_state=i, min_value=0)
@@ -141,7 +140,7 @@ def main():
                 current_run_df = year_df.copy()
                 current_run_df[valid_cols_for_year] = imputed_matrix
 
-                #Clamping/Rounding
+                # Clamping/Rounding
                 precise_bounds = {
                     'Employment_Rate': (0.0, 1.0), 'IDACI_Rate': (0.0, 1.0), 'Income_Rate': (0.0, 1.0),
                     'IMD_Score': (1.58, 100.0), 'Health_Score': (-4.0, 4.0), 'greenspace_percentage': (0.0, 100.0),
@@ -161,17 +160,27 @@ def main():
                     if col in current_run_df.columns:
                         current_run_df[col] = current_run_df[col].round(0)
 
-                #Aggregates
+                # Aggregates
                 current_run_df = calculate_intermediate_aggregates(current_run_df)
                 current_run_df['imputation_run'] = i
                 final_completed_rows.append(current_run_df)
             print("")
 
-        #Save Result
-        print("\nStep 5: Saving consolidated dataset...")
+        # Save Result
+        print("\nStep 5: Aggregating imputation runs and saving final dataset...")
         all_runs_df = pd.concat(final_completed_rows)
-        all_runs_df.to_parquet(OUTPUT_FILE_ALL_RUNS, index=False)
-        print(f"Success! Saved {len(all_runs_df)} rows.")
+        # Calculate the mean across the imputation runs for each LSOA/year
+        exclude_cols = ['area_code', 'year', 'imputation_run']
+        agg_cols = [c for c in all_runs_df.columns
+                    if pd.api.types.is_numeric_dtype(all_runs_df[c]) and c not in exclude_cols]
+        final_df = all_runs_df.groupby(['area_code', 'year'])[agg_cols].mean().reset_index()
+        # Re-apply necessary rounding to the final mean values
+        int_cols = ['population', 'latest_median_house_price', 'crime_count']
+        for col in int_cols:
+            if col in final_df.columns:
+                final_df[col] = final_df[col].round(0)
+        final_df.to_parquet(OUTPUT_FILE_ALL_RUNS, index=False)
+        print(f"Success! Saved {len(final_df)} rows.")
         print(f"File: {OUTPUT_FILE_ALL_RUNS}")
     except Exception as e:
         print(f"An error occurred: {e}")

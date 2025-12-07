@@ -54,11 +54,8 @@ echo "  -> All individual indicator files created."
 
 
 # --- 4. BUILD FINAL MASTER FILE (IMPUTATION) ---
-# This script MUST be run last.
-# It reads all the sparse files from Step 3 and creates the
-# final, fully-imputed 'lsoa_annual_indicators.parquet'.
 echo "\n--- STEP 4: Running Imputation Engine to build master file... ---"
-python scripts/build_master_timeseries.py
+python scripts/imputation_engine.py
 
 
 echo "\n--- ALL DONE! ---"
