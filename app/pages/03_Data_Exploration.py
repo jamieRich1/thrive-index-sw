@@ -317,7 +317,7 @@ elif 'Compare' in mode:
 
 # Explore Correlations
 elif 'Correlations' in mode:
-    st.header(f"📈 Explore Correlations for {TARGET_YEAR}")
+    st.header(f"Explore Correlations for {TARGET_YEAR}")
     st.markdown(
         f"Select two indicators to see if there is a relationship between them across all areas for **{TARGET_YEAR}**.")
 
@@ -386,7 +386,7 @@ elif 'Correlations' in mode:
 
 # View Distribution
 elif 'Distribution' in mode:
-    st.header(f"📊 View Distribution for {TARGET_YEAR}")
+    st.header(f"View Distribution for {TARGET_YEAR}")
     st.markdown(f"See how a specific area's score compares to the overall distribution for **{TARGET_YEAR}**.")
 
     # Sidebar Controls

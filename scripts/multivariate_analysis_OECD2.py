@@ -243,7 +243,7 @@ def plot_means_single(result, output_path, year):
     plt.close()
 
 def plot_scatter_single(result, output_path, year):
-    """Plots a single Cluster Scatter Plot in PC space for the target year (FIXED)."""
+    """Plots a single Cluster Scatter Plot in PC space for the target year."""
     pca_data = result['pca_data']
     clusters = result['clusters']
     exp_var = result['pca'].explained_variance_ratio_

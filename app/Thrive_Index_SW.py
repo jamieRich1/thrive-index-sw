@@ -1,82 +1,118 @@
-#Imports
+# Imports
 import streamlit as st
 
-#Page Config
+# Page Config
 st.set_page_config(
     page_title="Thrive Index SW",
     page_icon="🗺️",
     layout="wide"
 )
 
-st.title("Welcome to the Thrive Index for the South West 🗺️")
-st.markdown("---")
-st.subheader("Understanding Your Local Area")
-st.write(
-    "The Thrive Index is a powerful tool designed to provide insights into the quality of life across different neighbourhoods. "
-    "By combining key indicators like greenspace access and air quality, it offers a comparative score to help residents, "
-    "researchers, and policymakers understand the unique characteristics of each community."
-)
-
-#Explaination Container
-with st.container(border=True):
-    st.subheader("How the 'Thrive Score' is Calculated")
-    st.markdown(
-        """
-        The **Thrive Score** is a composite metric based on data at the **LSOA (Lower Layer Super Output Area)** level—small neighbourhoods of about 1,500 people.
-
-        1.  **Ranking:** For each indicator, every LSOA in the South West is ranked against all others. This percentile rank becomes its score (from 0 to 100). A score of 100 means an LSOA is in the top 1% for that indicator, while a score of 0 means it's in the bottom 1%.
-        2.  **Weighting:** You can adjust the importance (or "weight") of each category in the **Map Dashboard** and **Deep Dive** pages. The final Thrive Score is the weighted average of all six indicator scores.
-        3.  **Aggregation:** Ward scores are calculated by averaging the scores of all the LSOAs within them.
-        """
-    )
-
-    st.subheader("What We Measure")
-    st.markdown(
-        """
-        The index combines six key categories to build its score:
-
-        * 🌳 **Greenspace:** The percentage of an area's land that is covered by parks, public gardens, playing fields, and other accessible green spaces.
-        * 🌬️ **Air Quality:** Based on the annual mean concentration of NO₂ and PM₂.₅. Lower concentrations result in a better score.
-        * 🛡️ **Safety:** Calculated from the annual crime rate per 1,000 people (using ONS population data). A lower crime rate results in a better score.
-        * 🎓 **Education:** A combined score for the 3 nearest primary and 3 nearest secondary schools, based on DfE performance data (like KS2 scores, Progress 8, and Attainment 8).
-        * 🩺 **Healthcare:** A combined score based on two factors: the average *distance* to the 3 nearest GPs and the *overall patient satisfaction* at those practices.
-        * 👶 **Childcare:** A combined score for the 3 nearest providers, based on *distance*, *Ofsted quality rating*, and the *total number of registered places*.
-        """
-    )
-
-#Explanatory Container for Boundaries
-with st.container(border=True):
-    st.subheader("A Note on Map Boundaries")
-    st.markdown(
-        """
-        To provide the most intuitive and up-to-date navigation, this app uses the latest **2025 Ward and Local Authority (LAD) boundaries** for the map display. These are the official administrative areas you are familiar with.
-
-        However, the detailed statistical data for indicators is based on the **2021 Lower Layer Super Output Areas (LSOAs)**, which are the building blocks for census and other government data.
-
-        **What does this mean?**
-        * Because the LSOA shapes (from 2021) do not always fit perfectly inside the newer Ward shapes (from 2025), you may notice slight visual mismatches or overlaps on the map.
-        * This is a standard and expected result of using the official "best-fit" data provided by the Office for National Statistics (ONS).
-
-        **Having trouble finding a specific neighbourhood?**
-        Use the **postcode search** feature on the Map Dashboard. It will pinpoint the exact LSOA for any given postcode, bypassing any visual ambiguity.
-        """
-    )
-
+# Header
+st.title("Welcome to the Thrive Index for the South West")
 st.markdown("---")
 
-#2 by 2 grid for nav buttons
+# Intro
+col_intro, col_img = st.columns([2, 1])
+with col_intro:
+    st.subheader("Measuring Child Prosperity at the Neighbourhood Level")
+    st.write(
+        "The **Thrive Index** is a sophisticated data tool designed to measure prosperity for children "
+        "across South West England. Unlike standard reports that look at large districts, this tool drills down "
+        "to the **Neighbourhood (LSOA)** level—areas of approximately 1,500 residents."
+    )
+    st.write(
+        "By aggregating data points, from school exam results to air pollution, it calculates "
+        "a statistically robust **'Thrive Score'** for every community, allowing for fair comparison across the region."
+    )
+
+# Methodology Container
+with st.container(border=True):
+    st.subheader("📊 How the 'Thrive Score' is Calculated")
+    st.markdown(
+        """
+        The Thrive Score (0-100) is not a simple average. It is built using a rigorous, academic data pipeline designed to handle the complexity of real-world data:
+
+        1.  **Imputation (MICE):** Using *Multivariate Imputation by Chained Equations* to intelligently fill gaps in historical data on only 0.2% of overall data, ensuring no neighbourhood is penalized for missing records.
+        2.  **Normalization:** Data is normalized using a *Winsorized Min-Max* technique. This handles outliers (extreme values) so they don't skew the results, while ensuring all indicators are on a comparable 0-100 scale.
+        3.  **Weighting (PCA):** Instead of arbitrary manual weights, *Principal Component Analysis (PCA)* was used. This statistical method determines which indicators are the strongest drivers of variance, assigning weights based on mathematical relationships rather than opinion.
+        """
+    )
+
+# Pillars Container
+with st.container(border=True):
+    st.subheader("🧩 The 5 Pillars of the Thrive Score")
+    st.markdown("The final Composite Score is derived from five statistically identified pillars:")
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+
+    with c1:
+        st.markdown("#### 1. Socio-Economic")
+        st.caption("Deprivation & Safety")
+        st.markdown("- Income Deprivation Rate\n- Employment Deprivation Rate\n- Community Safety (Crime Rate per 1000 Residents)")
+
+    with c2:
+        st.markdown("#### 2. Env. Safety")
+        st.caption("Air Quality")
+        st.markdown("- NO₂ Concentration\n- PM₂.₅ Concentration")
+
+    with c3:
+        st.markdown("#### 3. Secondary Ed.")
+        st.caption("Key Stage 4")
+        st.markdown("- Progress 8 Scores\n- Attainment 8 Scores")
+
+    with c4:
+        st.markdown("#### 4. Primary Ed.")
+        st.caption("Key Stage 2")
+        st.markdown("- Reading Scores\n- Math Scores")
+
+    with c5:
+        st.markdown("#### 5. Childcare")
+        st.caption("Early Years Access")
+        st.markdown("- Ofsted Quality Ratings")
+
+    st.divider()
+    st.markdown("**Additional Contextual Data:**")
+    st.markdown(
+        "While not included in the mathematical *score* calculation, the dashboard also provides context on "
+        "**Greenspace Access**, **GP Satisfaction**, and **House Prices** to paint a complete picture of an area."
+    )
+
+# Boundaries Note
+with st.container(border=True):
+    st.subheader("📍 A Note on Boundaries")
+    st.markdown(
+        """
+        * **Statistical Data** is calculated at the **LSOA (2021)** level for maximum precision.
+        * **Map Boundaries** use the latest **May 2025 Wards** for intuitive navigation.
+
+        *Because statistical boundaries do not always align perfectly with political wards, you may see minor visual overlaps. 
+        For the most accurate result, use the **Postcode Search** on the dashboard.*
+        """
+    )
+
+st.markdown("---")
+
+# Navigation Grid
+st.subheader("Start Exploring")
 col1, col2 = st.columns(2)
-
 with col1:
-    st.page_link("pages/01_Map_Dashboard.py", label="Go to the Map Dashboard", icon="🗺️", use_container_width=True)
+    with st.container(border=True):
+        st.page_link("pages/01_Map_Dashboard.py", label="**Map Dashboard**", icon="🗺️")
+        st.caption("Drill down from Region to Ward to Neighbourhood.")
 
 with col2:
-    st.page_link("pages/02_Deep_Dive.py", label="Explore via Deep Dive", icon="📊", use_container_width=True)
+    with st.container(border=True):
+        st.page_link("pages/02_Deep_Dive.py", label="**Deep Dive Analysis**", icon="📊")
+        st.caption("View historical trends and detailed service lists for any area.")
 
 col3, col4 = st.columns(2)
-
 with col3:
-    st.page_link("pages/03_Data_Exploration.py", label="Data Exploration Tool", icon="📈", use_container_width=True)
+    with st.container(border=True):
+        st.page_link("pages/03_Data_Exploration.py", label="**Data Explorer**", icon="📈")
+        st.caption("Rank areas, compare neighbours, and find correlations.")
 
 with col4:
-    st.page_link("pages/04_Sources_&_Licensing.py", label="Sourcing & Licensing", icon="📄", use_container_width=True)
+    with st.container(border=True):
+        st.page_link("pages/04_Sources_&_Licensing.py", label="**Sources & Licensing**", icon="⚖️")
+        st.caption("Transparency on data origins and attribution.")
