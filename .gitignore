@@ -7,7 +7,6 @@ __pycache__/
 # Data
 data/raw/
 data/interim/
-data/processed/
 data/production/
 scripts/debug/
 data/analysis_results
