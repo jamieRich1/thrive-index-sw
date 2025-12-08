@@ -68,7 +68,7 @@ def load_childcare_data():
             int)
     else:
         master_df['places'] = 0
-    # Standardize Quality Score (for sorting/ranking if needed, though we use rating_str for display)
+    # Standardize Quality Score
     if 'rating_str' in master_df.columns:
         rating_map = {'1': 4, '2': 3, '3': 2, '4': 1}
         master_df['quality_score'] = master_df['rating_str'].astype(str).str[0].map(rating_map)
