@@ -128,8 +128,6 @@ with st.sidebar:
     st.markdown("---")
 
 # Retrieve Data
-# We get the scored data for 2024 specifically for the score box
-# For the rest of the page (historical/context), we query the master_gdf directly.
 latest_lsoa_data, latest_ward_data = get_scored_data_for_year(TARGET_YEAR)
 all_years = sorted(st.session_state['master_gdf']['year'].unique())
 
@@ -835,7 +833,6 @@ if st.session_state.get("selected_lsoa_code"):
         Areas are grouped into 10 'deciles', where **1 is the most deprived** 10% in England, 
         and **10 is the least deprived** 10%.
         """)
-        # We calculated deciles in utils.py so they should be available now
         overall_decile = lsoa_data.get('IMD_Decile')
 
         if pd.isna(overall_decile):
@@ -1409,31 +1406,26 @@ elif st.session_state.get("selected_ward_code"):
         if TARGET_YEAR in all_years:
             default_idx = all_years.index(TARGET_YEAR)
 
-        # We allow year selection for comparison as it looks at RAW indicators which exist for multiple years
         year_for_table = st.selectbox(
             "Select Year to Display:",
             options=all_years,
             index=default_idx,
             key="table_year_selector"
         )
-
-        # To get the comparison data, we pull from master_gdf directly for the selected year
         # This contains the non-imputed raw metrics
         master_gdf = st.session_state['master_gdf']
         lsoa_for_table = master_gdf[master_gdf['year'] == year_for_table].copy()
 
         # Also need to merge in the 2024 Scores if available for reference
         if year_for_table == TARGET_YEAR:
-            # If we are looking at 2024, merge scores
             neighbourhoods_in_ward_df = latest_lsoa_data[latest_lsoa_data["WD25CD"] == ward_code]
         else:
             # Just raw data for other years
             neighbourhoods_in_ward_df = lsoa_for_table[lsoa_for_table["WD25CD"] == ward_code]
 
-        # FIX: Updated column references for Table
         cols_to_show = [
             'display_name',
-            'Final_CI_Score',  # Only if 2024
+            'Final_CI_Score',
             # Pillar Scores
             'Socio-Economic_Deprivation_Score',
             'Environmental_Safety_Score',

@@ -4,8 +4,7 @@ import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Point
 from pathlib import Path
-from datetime import date
-import numpy as np  # Ensure numpy is available
+import numpy as np
 
 # Constants
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "processed"
@@ -16,23 +15,16 @@ WARD_GJSON = DATA_DIR / "boundaries_ward.geojson"
 LAD_GDF_FILE = DATA_DIR / "lad_sw_outline.geojson"
 LSOA_BOUNDARIES_FILE = DATA_DIR / "boundaries_lsoa.geoparquet"
 GREENSPACE_GEOMETRIES_FILE = DATA_DIR / "sw_greenspace_geometries.geoparquet"
-
-# Time-series and Indicator Data
 LSOA_HOUSE_PRICE_TIMESERIES_FILE = DATA_DIR / "lsoa_house_prices_timeseries.parquet"
 WARD_HOUSE_PRICE_TIMESERIES_FILE = DATA_DIR / "ward_house_prices_timeseries.parquet"
 SW_HOUSE_PRICE_TIMESERIES_FILE = DATA_DIR / "sw_house_prices_timeseries.parquet"
 LSOA_MONTHLY_CRIME_FILE = DATA_DIR / "lsoa_monthly_crime.parquet"
-
-# NEW: Main Data Files
 LSOA_FINAL_SCORES_FILE = DATA_DIR / "lsoa_final_composite_scores_2024.parquet"
 LSOA_CONTEXT_DATA_FILE = DATA_DIR / "lsoa_annual_indicators_non_imputed.parquet"
-
-# Historical Data
 HISTORICAL_GP_SCORES_FILE = DATA_DIR / "gp_historical_satisfaction.parquet"
 HISTORICAL_CHILDCARE_FILE = DATA_DIR / "childcare_historical_data.parquet"
 HISTORICAL_PRIMARY_SCORES_FILE = DATA_DIR / "primary_school_historical_data.parquet"
 HISTORICAL_SECONDARY_SCORES_FILE = DATA_DIR / "secondary_school_historical_data.parquet"
-
 
 # Data Loaders
 @st.cache_data(show_spinner="Loading greenspace areas...")
@@ -44,7 +36,6 @@ def load_greenspace_geometries():
     gdf = gpd.read_parquet(GREENSPACE_GEOMETRIES_FILE)
     return gdf.to_crs(4326)
 
-
 @st.cache_data(show_spinner=False)
 def load_area_codes(valid_codes):
     """Loads the LSOA to Ward/LAD lookup table, filtered to valid codes."""
@@ -53,7 +44,6 @@ def load_area_codes(valid_codes):
     valid = pd.Series(list(valid_codes), dtype=str).str.strip().str.upper()
     return df[df["LSOA21CD"].isin(valid)].copy()
 
-
 @st.cache_data
 def load_postcode_list():
     """Loads a unique, sorted list of all postcodes for the search box."""
@@ -61,7 +51,6 @@ def load_postcode_list():
         return []
     df = pd.read_parquet(POSTCODE_FILE, columns=['Postcode'])
     return sorted(df['Postcode'].unique().tolist())
-
 
 @st.cache_data
 def get_postcode_coords(postcode: str):
@@ -74,7 +63,6 @@ def get_postcode_coords(postcode: str):
         return match.iloc[0]['latitude'], match.iloc[0]['longitude']
     return None
 
-
 @st.cache_data(show_spinner="Loading detailed crime history...")
 def load_monthly_crime_data():
     """Loads the pre-aggregated monthly crime data for deep-dive charts."""
@@ -86,7 +74,6 @@ def load_monthly_crime_data():
     df = df.set_index('period')
     return df
 
-
 @st.cache_data(show_spinner="Loading GP satisfaction history...")
 def load_gp_historical_data():
     """Loads the pre-processed historical satisfaction data for all GPs."""
@@ -96,7 +83,6 @@ def load_gp_historical_data():
     df = pd.read_parquet(HISTORICAL_GP_SCORES_FILE)
     df['year'] = df['year'].astype(str)
     return df
-
 
 @st.cache_data(show_spinner="Loading childcare history...")
 def load_childcare_historical_data():
@@ -138,8 +124,6 @@ def load_master_data():
     Loads all base geographies, the context data, and the final 2024 composite scores.
     Merges them into a single master_gdf stored in session_state.
     """
-    print("Running load_master_data()...")
-
     # Part 1 - Load base geographic data
     lad_gdf = gpd.read_file(LAD_GDF_FILE).to_crs(4326)
     lsoa_index_gdf_base = gpd.read_parquet(LSOA_BOUNDARIES_FILE).to_crs(4326)
@@ -171,20 +155,13 @@ def load_master_data():
         scores_df = pd.read_parquet(LSOA_FINAL_SCORES_FILE)
 
     # Part 4 - Merge Context and Scores
-    # We left join scores onto context data.
-    # Scores likely only exist for 2024, so other years will have NaN scores.
     if not scores_df.empty:
         # Ensure year is int in both to guarantee successful merge
         if 'year' in scores_df.columns:
             scores_df['year'] = scores_df['year'].astype(int)
         context_df['year'] = context_df['year'].astype(int)
-
         # Merge
-        # Note: scores_df should have 'area_code' and 'year'
-        # suffix='_score_file' ensures that if a column exists in both (e.g., 'population'),
-        # the version from context_df (non-imputed) keeps the original name, which is what we want for display.
         master_df = context_df.merge(scores_df, on=['area_code', 'year'], how='left', suffixes=('', '_score_file'))
-
     else:
         master_df = context_df
 
@@ -250,9 +227,9 @@ def load_master_data():
                     df['area_code'] = df['area_code'].astype(str).str.strip()
                 return df
             except Exception as e:
-                print(f"⚠️ Error loading house price file {filepath.name}: {e}")
+                print(f"Error loading house price file {filepath.name}: {e}")
         else:
-            print(f"⚠️ Warning: House price history file not found: {filepath.name}")
+            print(f"Warning: House price history file not found: {filepath.name}")
         return pd.DataFrame()
 
     st.session_state['lsoa_house_price_history'] = load_price_history(LSOA_HOUSE_PRICE_TIMESERIES_FILE)
@@ -268,7 +245,6 @@ def load_master_data():
     st.session_state['primary_historical_df'] = load_primary_historical_data()
     st.session_state['secondary_historical_df'] = load_secondary_historical_data()
 
-
 # Data Retrieval Function (Scoring Logic Removed)
 @st.cache_data
 def get_scored_data_for_year(selected_year: int):
@@ -277,8 +253,6 @@ def get_scored_data_for_year(selected_year: int):
     Since scores are now pre-calculated in the file, this function simply
     filters the dataframe and performs Ward-level aggregation.
     """
-    print(f"--- Running get_data_for_year for {selected_year} ---")
-
     if 'master_gdf' not in st.session_state:
         st.error("Master data not loaded. Please refresh.")
         return pd.DataFrame(), pd.DataFrame()
@@ -293,7 +267,7 @@ def get_scored_data_for_year(selected_year: int):
 
     # Aggregation columns
     agg_cols = {
-        # New Scores
+        # Final Scores
         'Final_CI_Score': 'mean',
         'Socio-Economic_Deprivation_Score': 'mean',
         'Environmental_Safety_Score': 'mean',
@@ -317,7 +291,6 @@ def get_scored_data_for_year(selected_year: int):
         'total_childcare_places_nearby': 'mean',
         'population': 'sum',
         'latest_median_house_price': 'mean',
-
         # Deciles (Aggregated by Mean for Ward view)
         'IMD_Decile': 'mean',
         'Income_Decile': 'mean',
@@ -328,17 +301,14 @@ def get_scored_data_for_year(selected_year: int):
 
     # Group by Ward codes, then add the LAD codes back
     group_cols = ['WD25CD', 'WD25NM']
-
     # Filter agg_cols to only those present in the dataframe
     valid_agg_cols = {k: v for k, v in agg_cols.items() if k in gdf_year.columns}
-
     if not valid_agg_cols:
         ward_stats_df = pd.DataFrame(columns=group_cols + ['LAD25CD'])
     else:
         ward_stats_df = gdf_year.groupby(group_cols, as_index=False).agg(valid_agg_cols)
         ward_lad_lookup = gdf_year[['WD25CD', 'LAD25CD']].drop_duplicates().dropna()
         ward_stats_df = ward_stats_df.merge(ward_lad_lookup, on='WD25CD', how='left')
-
         # Cleanup: Rounding and Integers for display
         if 'latest_median_house_price' in ward_stats_df.columns:
             ward_stats_df['latest_median_house_price'] = ward_stats_df['latest_median_house_price'].fillna(0).astype(
@@ -352,7 +322,6 @@ def get_scored_data_for_year(selected_year: int):
 
     return gdf_year, ward_stats_df
 
-
 # Helper Functions
 def find_containing_area(gdf: gpd.GeoDataFrame, lat: float, lon: float):
     """Finds which geometry in a GeoDataFrame contains a given lat/lon point."""
@@ -363,7 +332,6 @@ def find_containing_area(gdf: gpd.GeoDataFrame, lat: float, lon: float):
     possible_matches = gdf.iloc[possible_matches_idx]
     precise_match = possible_matches[possible_matches.contains(point)]
     return precise_match.iloc[0] if not precise_match.empty else None
-
 
 def get_color(key: str, palette):
     """Gets a consistent color for a given key from a color palette."""

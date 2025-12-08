@@ -4,7 +4,6 @@ import streamlit as st
 # Page Config
 st.set_page_config(
     page_title="Thrive Index SW",
-    page_icon="🗺️",
     layout="wide"
 )
 
