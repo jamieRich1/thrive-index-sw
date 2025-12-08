@@ -12,12 +12,21 @@ ANNUAL_POP_FILE = PROCESSED_DATA_DIR / "lsoa_annual_population.parquet"
 ANNUAL_CRIME_FILE = PROCESSED_DATA_DIR / "lsoa_annual_crime.parquet"
 ANNUAL_AIR_QUALITY_FILE = PROCESSED_DATA_DIR / "lsoa_annual_air_quality.parquet"
 ANNUAL_HEALTHCARE_SCORES_FILE = PROCESSED_DATA_DIR / "lsoa_annual_healthcare_scores.parquet"
-ANNUAL_CHILDCARE_SCORES_FILE = PROCESSED_DATA_DIR / "lsoa_annual_childcare_scores.parquet"
+
+# CHANGED: We now ignore the scoring childcare file and use the Deep Dive one
+# ANNUAL_CHILDCARE_SCORES_FILE = PROCESSED_DATA_DIR / "lsoa_annual_childcare_scores.parquet"
+
 STATIC_GREENSPACE_FILE = PROCESSED_DATA_DIR / "lsoa_greenspace.parquet"
 STATIC_IMD_FILE = PROCESSED_DATA_DIR / "lsoa_imd.parquet"
 STATIC_LATEST_HOUSE_PRICE_FILE = PROCESSED_DATA_DIR / "lsoa_latest_house_prices_imputed.parquet"
 ANNUAL_PRIMARY_SCORES_FILE = PROCESSED_DATA_DIR / "lsoa_annual_primary_weighted.parquet"
 ANNUAL_SECONDARY_SCORES_FILE = PROCESSED_DATA_DIR / "lsoa_annual_secondary_weighted.parquet"
+
+# Deep Dive Specific Files
+ANNUAL_PRIMARY_DEEPDIVE_FILE = PROCESSED_DATA_DIR / "lsoa_annual_primary_deepdive.parquet"
+ANNUAL_SECONDARY_DEEPDIVE_FILE = PROCESSED_DATA_DIR / "lsoa_annual_secondary_deepdive.parquet"
+ANNUAL_CHILDCARE_DEEPDIVE_FILE = PROCESSED_DATA_DIR / "lsoa_annual_childcare_deepdive.parquet"  # New
+
 OUTPUT_FILE_NON_IMPUTED = PROCESSED_DATA_DIR / "lsoa_annual_indicators_non_imputed.parquet"
 YEARS = list(range(2018, 2026))
 
@@ -26,25 +35,39 @@ YEARS = list(range(2018, 2026))
 def load_and_merge_file(master_df, file_path, on_cols, file_desc, cols_to_drop=None):
     if file_path.exists():
         print(f"  -> Loading {file_desc}...")
-        df_to_merge = pd.read_parquet(file_path)
-        df_to_merge = df_to_merge.drop_duplicates(subset=on_cols)
+        try:
+            df_to_merge = pd.read_parquet(file_path)
+        except Exception as e:
+            print(f"Warning: Could not read {file_path.name}: {e}")
+            return master_df
+
+        # Handle duplicates if any exist in source
+        if 'year' in on_cols:
+            df_to_merge = df_to_merge.drop_duplicates(subset=on_cols)
+        else:
+            df_to_merge = df_to_merge.drop_duplicates(subset=['area_code'])
+
         if cols_to_drop:
             cols_to_drop_existing = [col for col in cols_to_drop if col in df_to_merge.columns]
             if cols_to_drop_existing:
                 df_to_merge = df_to_merge.drop(columns=cols_to_drop_existing)
+
         # Use an outer merge to keep all LSOA/Year combinations, ensuring NaN for missing data
         master_df = master_df.merge(df_to_merge, on=on_cols, how='left')
     else:
-        print(f"ERROR: {file_path.name} not found. Stopping.")
-        sys.exit(1)
+        print(f"Warning: {file_path.name} not found. Skipping merge for this file.")
+        # We don't exit here, to allow partial builds if a file is missing
     return master_df
+
 
 def calculate_intermediate_aggregates(df):
     """Calculates aggregate columns from existing raw columns."""
     df = df.copy()
+
     def get_related_cols(prefix, metric):
         return [c for c in df.columns if
                 f'{prefix}_' in c and f'_{metric}' in c and 'avg' not in c and 'total' not in c]
+
     # GP Scores Aggregates
     gp_sat_cols = get_related_cols('gp', 'satisfaction')
     gp_dist_cols = get_related_cols('gp', 'distance')
@@ -71,6 +94,7 @@ def main():
         # Create the full LSOA/Year index for the time series
         master_index = pd.MultiIndex.from_product([lsoa_codes, YEARS], names=['area_code', 'year'])
         master_df = pd.DataFrame(index=master_index).reset_index()
+
         print("Step 2: Merging Datasets...")
         master_df = load_and_merge_file(master_df, ANNUAL_POP_FILE, ['area_code', 'year'], "population")
         master_df = load_and_merge_file(master_df, ANNUAL_CRIME_FILE, ['area_code', 'year'], "crime",
@@ -83,8 +107,13 @@ def main():
                                         "secondary weighted")
         master_df = load_and_merge_file(master_df, ANNUAL_HEALTHCARE_SCORES_FILE, ['area_code', 'year'],
                                         "healthcare scores")
-        master_df = load_and_merge_file(master_df, ANNUAL_CHILDCARE_SCORES_FILE, ['area_code', 'year'],
-                                        "childcare scores")
+        master_df = load_and_merge_file(master_df, ANNUAL_PRIMARY_DEEPDIVE_FILE, ['area_code', 'year'],
+                                        "primary deep dive data")
+        master_df = load_and_merge_file(master_df, ANNUAL_SECONDARY_DEEPDIVE_FILE, ['area_code', 'year'],
+                                        "secondary deep dive data")
+        master_df = load_and_merge_file(master_df, ANNUAL_CHILDCARE_DEEPDIVE_FILE, ['area_code', 'year'],
+                                        "childcare deep dive data")
+
         # Static files merge on 'area_code' only
         master_df = load_and_merge_file(master_df, STATIC_GREENSPACE_FILE, ['area_code'], "greenspace")
         master_df = load_and_merge_file(master_df, STATIC_IMD_FILE, ['area_code'], "IMD")
@@ -121,6 +150,7 @@ def main():
                 master_df[col] = master_df[col].round(0)
         if 'imputation_run' in master_df.columns:
             master_df = master_df.drop(columns=['imputation_run'])
+
         master_df.to_parquet(OUTPUT_FILE_NON_IMPUTED, index=False)
         print(f"Success! Saved {len(master_df)} rows.")
         print(f"File: {OUTPUT_FILE_NON_IMPUTED}")
@@ -129,6 +159,7 @@ def main():
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

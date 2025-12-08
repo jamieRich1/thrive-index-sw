@@ -105,7 +105,7 @@ with st.sidebar:
         if selected_ward_name:
             st.session_state.selected_ward_code = ward_gdf[
                 (ward_gdf['WD25NM'] == selected_ward_name) & (
-                            ward_gdf['LAD25CD'] == st.session_state.selected_lad_code)][
+                        ward_gdf['LAD25CD'] == st.session_state.selected_lad_code)][
                 'WD25CD'].iloc[0]
         if selected_lsoa_name:
             st.session_state.selected_lsoa_code = \
@@ -151,12 +151,11 @@ def get_primary_schools(lsoa_df):
             urn = lsoa_row.get(f'primary_school_{i}_urn')
 
             if name and pd.notna(name) and name != 'N/A' and urn and pd.notna(urn):
-                year_val = lsoa_row.get(f'primary_school_{i}_data_year', 0)
                 all_primary_schools.append({
                     "School Name": name,
                     "% Meeting Standard": lsoa_row.get(f'primary_school_{i}_pass_rate', np.nan),
-                    "Avg. Scaled Score": lsoa_row.get(f'primary_school_{i}_avg_scaled_score', np.nan),
-                    "Year": int(year_val) if year_val != 0 and pd.notna(year_val) else 'N/A',
+                    "Read Score": lsoa_row.get(f'primary_school_{i}_read_score', np.nan),
+                    "Math Score": lsoa_row.get(f'primary_school_{i}_math_score', np.nan),
                     "URN": str(int(float(urn)))  # Ensure URN is stringified clean integer
                 })
 
@@ -166,8 +165,8 @@ def get_primary_schools(lsoa_df):
     df = pd.DataFrame(all_primary_schools)
     school_urns_df = df[['School Name', 'URN']].drop_duplicates()
     df.drop_duplicates(subset=["School Name"], inplace=True)
-    if "Avg. Scaled Score" in df.columns:
-        df.sort_values(by="Avg. Scaled Score", ascending=False, inplace=True)
+    if "Read Score" in df.columns:
+        df.sort_values(by="Read Score", ascending=False, inplace=True)
     return df.drop(columns=['URN']), df['School Name'].tolist(), school_urns_df
 
 
@@ -184,17 +183,18 @@ def get_secondary_schools(lsoa_df, school_type='state'):
             name = lsoa_row.get(f'school_{i}_name')
             nftype = lsoa_row.get(f'school_{i}_nftype', 'NA')
             urn = lsoa_row.get(f'school_{i}_urn')
-            is_ind = (nftype == 'IND')
+
+            # Normalize nftype check
+            is_ind = (str(nftype).strip().upper() == 'IND')
+
             if (school_type == 'independent' and not is_ind) or (school_type == 'state' and is_ind):
                 continue
 
             if name and pd.notna(name) and name != 'N/A' and urn and pd.notna(urn):
-                year_val = lsoa_row.get(f'school_{i}_data_year', 0)
                 all_schools.append({
                     "School Name": name,
                     "Progress 8": lsoa_row.get(f'school_{i}_progress_8', np.nan),
                     "Attainment 8": lsoa_row.get(f'school_{i}_attainment_8', np.nan),
-                    "Year": int(year_val) if year_val != 0 and pd.notna(year_val) else 'N/A',
                     "Type": nftype,
                     "URN": str(int(float(urn)))
                 })
@@ -217,7 +217,8 @@ def display_primary_school_history(school_urns_df, primary_historical_df):
         hist_df = primary_historical_df.rename(columns={
             'URN': 'urn',
             'avg_ks2_pass_rate': '% Meeting Standard',
-            'avg_primary_scaled_score': 'Avg. Scaled Score'
+            'read_score': 'Read Score',
+            'math_score': 'Math Score'
         })
         hist_df['urn'] = hist_df['urn'].astype(str)
         unique_urns = school_urns_df['URN'].astype(str).unique()
@@ -241,18 +242,32 @@ def display_primary_school_history(school_urns_df, primary_historical_df):
                 for year in table_pass_rate.columns
             })
 
-            # Table 2 - Avg Scaled Score
-            st.markdown("**Historical: Average Scaled Score**")
-            table_scaled_score = chart_data.pivot_table(
+            # Table 2 - Read Score
+            st.markdown("**Historical: Read Score**")
+            table_read = chart_data.pivot_table(
                 index='School Name',
                 columns='year',
-                values='Avg. Scaled Score',
+                values='Read Score',
                 aggfunc='mean'
             ).round(1)
-            table_scaled_score = table_scaled_score.reindex(sorted(table_scaled_score.columns), axis=1)
-            st.dataframe(table_scaled_score, width='stretch', column_config={
+            table_read = table_read.reindex(sorted(table_read.columns), axis=1)
+            st.dataframe(table_read, width='stretch', column_config={
                 year: st.column_config.NumberColumn(f"{year}", format="%.1f")
-                for year in table_scaled_score.columns
+                for year in table_read.columns
+            })
+
+            # Table 3 - Math Score
+            st.markdown("**Historical: Math Score**")
+            table_math = chart_data.pivot_table(
+                index='School Name',
+                columns='year',
+                values='Math Score',
+                aggfunc='mean'
+            ).round(1)
+            table_math = table_math.reindex(sorted(table_math.columns), axis=1)
+            st.dataframe(table_math, width='stretch', column_config={
+                year: st.column_config.NumberColumn(f"{year}", format="%.1f")
+                for year in table_math.columns
             })
         else:
             st.info("No historical performance data found for these primary schools.")
@@ -330,7 +345,7 @@ if st.session_state.get("selected_lsoa_code"):
             st.session_state.pop('selected_lsoa_code', None)
             st.rerun()
 
-    # --- TOP SCORING SECTION (2024 COMPOSITE) ---
+    # Composite Scoring Section
     st.markdown("### Thrive Index Score (2024)")
 
     final_score_raw = lsoa_data.get('Final_CI_Score')
@@ -375,9 +390,7 @@ if st.session_state.get("selected_lsoa_code"):
                 st.metric("Childcare", get_fmt_score(lsoa_data, 'Childcare_Quality_Score'))
                 st.caption("Ofsted Quality")
 
-    # --- HISTORICAL / CONTEXT DATA SECTION ---
-    # Need context data from master_gdf for history
-
+    # Historical Context Section
     # House Price Trend Container
     with st.container(border=True):
         st.subheader("Median House Price Trend")
@@ -663,8 +676,8 @@ if st.session_state.get("selected_lsoa_code"):
                     hide_index=True,
                     column_config={
                         "% Meeting Standard": st.column_config.NumberColumn(format="%.0f%%"),
-                        "Avg. Scaled Score": st.column_config.NumberColumn(format="%.1f"),
-                        "Year": st.column_config.NumberColumn(format="%d")
+                        "Read Score": st.column_config.NumberColumn(format="%.1f"),
+                        "Math Score": st.column_config.NumberColumn(format="%.1f")
                     }
                 )
                 display_primary_school_history(lsoa_primary_urns_df, primary_historical_df)
@@ -695,8 +708,8 @@ if st.session_state.get("selected_lsoa_code"):
                             hide_index=True,
                             column_config={
                                 "% Meeting Standard": st.column_config.NumberColumn(format="%.0f%%"),
-                                "Avg. Scaled Score": st.column_config.NumberColumn(format="%.1f"),
-                                "Year": st.column_config.NumberColumn(format="%d")
+                                "Read Score": st.column_config.NumberColumn(format="%.1f"),
+                                "Math Score": st.column_config.NumberColumn(format="%.1f")
                             }
                         )
                         display_primary_school_history(n_primary_urns_df_filtered, primary_historical_df)
@@ -731,8 +744,7 @@ if st.session_state.get("selected_lsoa_code"):
                     hide_index=True,
                     column_config={
                         "Progress 8": st.column_config.NumberColumn(format="%.2f"),
-                        "Attainment 8": st.column_config.NumberColumn(format="%.1f"),
-                        "Year": st.column_config.NumberColumn(format="%d")
+                        "Attainment 8": st.column_config.NumberColumn(format="%.1f")
                     }
                 )
                 display_secondary_school_history(lsoa_secondary_urns_df, secondary_historical_df)
@@ -772,8 +784,7 @@ if st.session_state.get("selected_lsoa_code"):
                             hide_index=True,
                             column_config={
                                 "Progress 8": st.column_config.NumberColumn(format="%.2f"),
-                                "Attainment 8": st.column_config.NumberColumn(format="%.1f"),
-                                "Year": st.column_config.NumberColumn(format="%d")
+                                "Attainment 8": st.column_config.NumberColumn(format="%.1f")
                             }
                         )
                         display_secondary_school_history(n_secondary_urns_df_filtered, secondary_historical_df)
@@ -868,7 +879,7 @@ elif st.session_state.get("selected_ward_code"):
     st.subheader(f"Ward: *{ward_data['WD25NM']}*")
     st.caption(f"Data Focus: {TARGET_YEAR}")
 
-    # --- TOP SCORING SECTION (WARD AVG) ---
+    # Top Scoring Section
     st.markdown("### Thrive Index Score (Ward Average, 2024)")
 
     final_score_raw = ward_data.get('Final_CI_Score')
@@ -1203,8 +1214,8 @@ elif st.session_state.get("selected_ward_code"):
                     hide_index=True,
                     column_config={
                         "% Meeting Standard": st.column_config.NumberColumn(format="%.0f%%"),
-                        "Avg. Scaled Score": st.column_config.NumberColumn(format="%.1f"),
-                        "Year": st.column_config.NumberColumn(format="%d")
+                        "Read Score": st.column_config.NumberColumn(format="%.1f"),
+                        "Math Score": st.column_config.NumberColumn(format="%.1f")
                     }
                 )
                 display_primary_school_history(ward_primary_urns_df, primary_historical_df)
@@ -1235,8 +1246,8 @@ elif st.session_state.get("selected_ward_code"):
                             hide_index=True,
                             column_config={
                                 "% Meeting Standard": st.column_config.NumberColumn(format="%.0f%%"),
-                                "Avg. Scaled Score": st.column_config.NumberColumn(format="%.1f"),
-                                "Year": st.column_config.NumberColumn(format="%d")
+                                "Read Score": st.column_config.NumberColumn(format="%.1f"),
+                                "Math Score": st.column_config.NumberColumn(format="%.1f")
                             }
                         )
                         display_primary_school_history(n_primary_urns_df_filtered, primary_historical_df)
@@ -1270,8 +1281,7 @@ elif st.session_state.get("selected_ward_code"):
                     hide_index=True,
                     column_config={
                         "Progress 8": st.column_config.NumberColumn(format="%.2f"),
-                        "Attainment 8": st.column_config.NumberColumn(format="%.1f"),
-                        "Year": st.column_config.NumberColumn(format="%d")
+                        "Attainment 8": st.column_config.NumberColumn(format="%.1f")
                     }
                 )
                 display_secondary_school_history(ward_secondary_urns_df, secondary_historical_df)
@@ -1310,8 +1320,7 @@ elif st.session_state.get("selected_ward_code"):
                             hide_index=True,
                             column_config={
                                 "Progress 8": st.column_config.NumberColumn(format="%.2f"),
-                                "Attainment 8": st.column_config.NumberColumn(format="%.1f"),
-                                "Year": st.column_config.NumberColumn(format="%d")
+                                "Attainment 8": st.column_config.NumberColumn(format="%.1f")
                             }
                         )
                         display_secondary_school_history(n_secondary_urns_df_filtered, secondary_historical_df)
@@ -1354,7 +1363,7 @@ elif st.session_state.get("selected_ward_code"):
             else:
                 st.info("No independent secondary schools found in this ward or neighbouring wards.")
 
-    # Deprivation Details Container ---
+    # Deprivation Details Container
     with st.container(border=True):
         st.subheader("Deprivation Details (IMD 2019 - Ward Average)")
         st.caption("""
@@ -1395,11 +1404,16 @@ elif st.session_state.get("selected_ward_code"):
     with st.container(border=True):
         st.subheader(f"Neighbourhoods in this Ward")
 
+        # Default to 2024 if available, else last year in list
+        default_idx = len(all_years) - 1
+        if TARGET_YEAR in all_years:
+            default_idx = all_years.index(TARGET_YEAR)
+
         # We allow year selection for comparison as it looks at RAW indicators which exist for multiple years
         year_for_table = st.selectbox(
             "Select Year to Display:",
             options=all_years,
-            index=len(all_years) - 1,
+            index=default_idx,
             key="table_year_selector"
         )
 
@@ -1420,6 +1434,13 @@ elif st.session_state.get("selected_ward_code"):
         cols_to_show = [
             'display_name',
             'Final_CI_Score',  # Only if 2024
+            # Pillar Scores
+            'Socio-Economic_Deprivation_Score',
+            'Environmental_Safety_Score',
+            'Secondary_Education_Score',
+            'Primary_Education_Score',
+            'Childcare_Quality_Score',
+            # Context Data
             'latest_median_house_price',
             'population',
             'greenspace_percentage',
@@ -1442,7 +1463,14 @@ elif st.session_state.get("selected_ward_code"):
 
         rename_map = {
             'display_name': 'Neighbourhood',
-            'Final_CI_Score': 'Thrive Score (2024 Only)',
+            'Final_CI_Score': 'Thrive Score',
+            # Pillar Renames
+            'Socio-Economic_Deprivation_Score': 'Socio-Ec Score',
+            'Environmental_Safety_Score': 'Env Safety Score',
+            'Secondary_Education_Score': 'Sec Ed Score',
+            'Primary_Education_Score': 'Pri Ed Score',
+            'Childcare_Quality_Score': 'Childcare Score',
+            # Context Renames
             'latest_median_house_price': 'Latest House Price',
             'population': 'Population',
             'greenspace_percentage': 'Greenspace %',
@@ -1466,7 +1494,12 @@ elif st.session_state.get("selected_ward_code"):
             df_to_display,
             hide_index=True,
             column_config={
-                "Thrive Score (2024 Only)": st.column_config.NumberColumn(format="%.0f"),
+                "Thrive Score": st.column_config.NumberColumn(format="%.0f"),
+                "Socio-Ec Score": st.column_config.NumberColumn(format="%.0f"),
+                "Env Safety Score": st.column_config.NumberColumn(format="%.0f"),
+                "Sec Ed Score": st.column_config.NumberColumn(format="%.0f"),
+                "Pri Ed Score": st.column_config.NumberColumn(format="%.0f"),
+                "Childcare Score": st.column_config.NumberColumn(format="%.0f"),
                 "Latest House Price": st.column_config.NumberColumn(format="£%d"),
                 "Population": st.column_config.NumberColumn(format="%d"),
                 "Greenspace %": st.column_config.NumberColumn(format="%.1f%%"),

@@ -5,6 +5,7 @@ import geopandas as gpd
 from shapely.geometry import Point
 from pathlib import Path
 from datetime import date
+import numpy as np  # Ensure numpy is available
 
 # Constants
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "processed"
@@ -187,6 +188,33 @@ def load_master_data():
     else:
         master_df = context_df
 
+    imd_vars = {
+        'IMD_Score': 'IMD_Decile',
+        'Income_Rate': 'Income_Decile',
+        'Employment_Rate': 'Employment_Decile',
+        'Health_Score': 'Health_Decile',
+        'IDACI_Rate': 'IDACI_Decile'
+    }
+
+    for score_col, decile_col in imd_vars.items():
+        if score_col in master_df.columns:
+            try:
+                # Check for sufficient unique values to bin
+                if master_df[score_col].nunique() > 1:
+                    # qcut with labels [10...1] ensures Highest Score gets Label 1
+                    master_df[decile_col] = pd.qcut(
+                        master_df[score_col].rank(method='first'),
+                        10,
+                        labels=[10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+                    )
+                    # Convert to numeric to allow aggregation (mean) in get_scored_data_for_year
+                    master_df[decile_col] = pd.to_numeric(master_df[decile_col])
+                else:
+                    master_df[decile_col] = np.nan
+            except Exception as e:
+                print(f"Warning: Could not calculate {decile_col}: {e}")
+                master_df[decile_col] = np.nan
+
     # Part 5 - Merge LSOA geometries onto the master data
     master_gdf = lsoa_index_gdf_base.merge(master_df, on="area_code", how="left")
 
@@ -264,9 +292,6 @@ def get_scored_data_for_year(selected_year: int):
         return pd.DataFrame(), pd.DataFrame()
 
     # Aggregation columns
-    # We aggregate the new score columns + the context columns
-    # Note: 'mean' is used for scores, 'sum' for population
-
     agg_cols = {
         # New Scores
         'Final_CI_Score': 'mean',
@@ -293,7 +318,7 @@ def get_scored_data_for_year(selected_year: int):
         'population': 'sum',
         'latest_median_house_price': 'mean',
 
-        # Deciles
+        # Deciles (Aggregated by Mean for Ward view)
         'IMD_Decile': 'mean',
         'Income_Decile': 'mean',
         'Employment_Decile': 'mean',

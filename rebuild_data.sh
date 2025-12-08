@@ -47,8 +47,14 @@ python scripts/process_secondary_school_data.py
 python scripts/process_childcare.py
 echo "  -> All individual indicator files created."
 
+#--- 4. Deep Dive
+python scripts/process_childcare_deepdive.py
+python scripts/process_primary_deep_dive.py
+python scripts/process_secondary_deep_dive.py
+python scripts/build_non_imputed_timeseries.py
+echo "  -> All deepdive files created."
 
-# --- 4. BUILD FINAL MASTER FILE
+# --- 5. BUILD FINAL MASTER FILE
 echo "\n--- STEP 4: Running Imputation Engine, Normalisation & Weighting and Aggregation ---"
 python scripts/imputation_engine.py
 python scripts/normalisation_script.py

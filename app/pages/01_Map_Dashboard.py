@@ -222,7 +222,7 @@ with left_col:
     # Use standard tiles to avoid potential heavy custom tile loading issues
     m = folium.Map(tiles="OpenStreetMap", control_scale=True, min_zoom=7, max_zoom=16)
 
-    # --- MODE 1: Regional Overview (All LSOAs) ---
+    # Regional Overview
     if overview_mode:
         # Load pre-processed/simplified data (Cached)
         lsoas_to_draw = prepare_overview_data(lsoa_to_display)
@@ -279,7 +279,7 @@ with left_col:
 
         m.fit_bounds(SW_BOUNDS_CORRECTED)
 
-    # --- MODE 2: Drill-down Navigation ---
+    # Drill-down Navigation
     else:
         # Level 1 - Local Authority (LAD)
         if st.session_state.selected_lad_code is None:
@@ -449,7 +449,7 @@ if not overview_mode:
                     display_row = lsoa_row.iloc[0]
                     is_ward = False
 
-            # --- DISPLAY METRICS ---
+            # Display Metrics
             if display_row is not None:
                 # Main Score Check
                 final_score_raw = display_row.get('Final_CI_Score')
