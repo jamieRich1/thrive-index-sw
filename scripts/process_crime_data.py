@@ -98,10 +98,6 @@ fill_cols = ['raw_crime_count', 'months_of_data', 'annualized_crime_count']
 master_df.fillna({col: 0 for col in fill_cols}, inplace=True)
 master_df['is_full_year'] = master_df['months_of_data'].apply(lambda x: x == 12)
 
-#Forward-fill population
-master_df['population'] = master_df.sort_values(by='year').groupby('area_code')['population'].ffill()
-master_df.dropna(subset=['population'], inplace=True)
-
 #Save Annual
 annual_output_df = master_df.drop(columns=['geometry'], errors='ignore')
 annual_output_df.to_parquet(OUTPUT_FILE_ANNUAL, index=False)

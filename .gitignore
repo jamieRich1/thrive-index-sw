@@ -10,6 +10,12 @@ data/interim/
 data/processed/
 data/production/
 scripts/debug/
+data/analysis_results
+data/analysis_results_2024_baseline
+data/analysis_results_2024_refined
+data/analysis_results_2024_refined_WEIGHTING
+data/analysis_results_2024_final_check
+data/analysis_results_robustness
 
 .venv/
 venv/
