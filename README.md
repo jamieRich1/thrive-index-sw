@@ -54,11 +54,11 @@ Rather than manually assigning weights based on opinion, using **Principal Compo
 
 The composite score is derived from five statistically identified domains:
 
-1.  **Socio-Economic:** A measure of economic resilience and safety, derived from Income Deprivation, Employment rates, and Community Safety (Crime) statistics.
+1.  **Socio-Economic:** A measure of economic resilience and safety, derived from Income Deprivation Rate, Employment Deprivation Rates, and Community Safety (Crime per 1000 Population) statistics.
 2.  **Environmental Safety:** A measure of physical health risks, based on annual mean concentrations of Nitrogen Dioxide (NO₂) and PM₂.₅ particulates.
 3.  **Secondary Education:** A weighted performance score based on Progress 8 and Attainment 8 results from the nearest state secondary schools.
-4.  **Primary Education:** A weighted performance score based on Key Stage 2 Reading, Math, and Pass Rates from the nearest primary schools.
-5.  **Childcare Quality:** A measure of early years provision, based on Ofsted quality ratings and access to providers.
+4.  **Primary Education:** A weighted performance score based on Key Stage 2 Reading and Maths from the nearest primary schools.
+5.  **Childcare Quality:** A measure of early years provision, based on Ofsted quality ratings.
 
 *Note: Contextual indicators like **Greenspace %**, **GP Satisfaction**, and **House Prices** are provided in the dashboard for context but are kept separate from the core score calculation.*
 
