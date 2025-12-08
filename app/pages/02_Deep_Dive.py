@@ -1,4 +1,4 @@
-#Imports
+# Imports
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -10,13 +10,14 @@ from utils import (
 from licensing import generate_attribution_markdown
 import plotly.express as px
 
-#Page Config
+# Page Config
 st.set_page_config(
     page_title="Deep Dive - Thrive Index SW",
     layout="wide"
 )
 
-#Constants
+# Constants
+TARGET_YEAR = 2024
 COMMUNITY_SAFETY_CRIMES = [
     'Anti-social behaviour', 'Burglary', 'Robbery',
     'Criminal damage and arson', 'Violence and sexual offences', 'Public order'
@@ -32,7 +33,7 @@ OFSTED_RATING_MAP = {
     'N/A': 'N/A'
 }
 
-#Data Loading
+# Data Loading
 if 'master_gdf' not in st.session_state:
     load_master_data()
 lad_gdf = st.session_state['lad_gdf']
@@ -46,7 +47,7 @@ childcare_historical_df = st.session_state.get('childcare_historical_df', pd.Dat
 primary_historical_df = st.session_state.get('primary_historical_df', pd.DataFrame())
 secondary_historical_df = st.session_state.get('secondary_historical_df', pd.DataFrame())
 
-#Sidebar
+# Sidebar
 with st.sidebar:
     st.markdown("##### Select an area to explore")
     lad_names = sorted(lad_gdf['lad_name'].unique())
@@ -103,7 +104,8 @@ with st.sidebar:
             st.session_state.selected_lad_code = lad_gdf[lad_gdf['lad_name'] == selected_lad_name]['lad_code'].iloc[0]
         if selected_ward_name:
             st.session_state.selected_ward_code = ward_gdf[
-                (ward_gdf['WD25NM'] == selected_ward_name) & (ward_gdf['LAD25CD'] == st.session_state.selected_lad_code)][
+                (ward_gdf['WD25NM'] == selected_ward_name) & (
+                            ward_gdf['LAD25CD'] == st.session_state.selected_lad_code)][
                 'WD25CD'].iloc[0]
         if selected_lsoa_name:
             st.session_state.selected_lsoa_code = \
@@ -111,7 +113,7 @@ with st.sidebar:
                     'area_code'].iloc[0]
         st.rerun()
 
-    #Reset Button
+    # Reset Button
     if st.button("Reset Filters / New Search"):
         keys_to_clear = ["selected_lad_code", "selected_ward_code", "selected_lsoa_code"]
         for key in keys_to_clear:
@@ -119,133 +121,64 @@ with st.sidebar:
                 del st.session_state[key]
         st.rerun()
 
-    #Map Dashboard Link
+    # Map Dashboard Link
     with st.container(border=True):
         st.page_link("pages/01_Map_Dashboard.py", label="View in Map Dashboard", icon="🗺️")
 
     st.markdown("---")
 
-    # Score Weighting Expander (3-Pillar System)
-    with st.expander("Customise 'Thrive Score' Weights", expanded=False):
-        st.markdown("Adjust the balance between the three core pillars.")
-
-        # 1. Set Defaults
-        w_safety_val = st.session_state.get('w_safety', 33)
-        w_opp_val = st.session_state.get('w_opportunity', 34)
-        w_green_val = st.session_state.get('w_greenspace', 33)
-
-        # 2. The 2 Sliders (Greenspace removed)
-        w_safety = st.slider("🛡️ Safety & Air", 0, 100, w_safety_val, key="w_safety_dd")
-        w_opp = st.slider("🚀 Opportunity", 0, 100, w_opp_val, key="w_opportunity_dd")
-
-        # Hardcode greenspace weight to 0
-        w_green = 0
-
-        # Sync with session state (so changes here update the Map Dashboard too)
-        st.session_state.w_safety = w_safety
-        st.session_state.w_opportunity = w_opp
-        st.session_state.w_greenspace = w_green
-
-        # 3. Normalisation
-        total_weight = w_safety + w_opp + w_green
-        if total_weight == 0: total_weight = 1
-
-        norm_weights = {
-            'safety': w_safety / total_weight,
-            'opportunity': w_opp / total_weight,
-            'greenspace': w_green / total_weight,
-        }
-
-#Data Scoring Based on Weights
+# Retrieve Data
+# We get the scored data for 2024 specifically for the score box
+# For the rest of the page (historical/context), we query the master_gdf directly.
+latest_lsoa_data, latest_ward_data = get_scored_data_for_year(TARGET_YEAR)
 all_years = sorted(st.session_state['master_gdf']['year'].unique())
-latest_year = all_years[-1]
-norm_weights_tuple = tuple(sorted(norm_weights.items()))
-#Get Data for Latest Year
-latest_lsoa_data, latest_ward_data = get_scored_data_for_year(
-    latest_year,
-    norm_weights_tuple
-)
 
-#Historical Scores
-def get_historical_scores(area_code, level, _norm_weights_tuple):
-    """
-    Gets the historical scores for a specific LSOA or Ward.
-    """
-    historical_scores = []
-    for year in all_years:
-        #get_scored_data_for_year is cached
-        lsoa_df, ward_df = get_scored_data_for_year(year, _norm_weights_tuple)
-        if level == 'lsoa':
-            area_data = lsoa_df[lsoa_df['area_code'] == area_code]
-        else:  #level == 'ward'
-            area_data = ward_df[ward_df['WD25CD'] == area_code]
 
-        if not area_data.empty:
-            scores = {
-                'Year': str(year),
-                'Thrive Score': area_data.iloc[0].get('composite_score', 0),
-                'Greenspace': area_data.iloc[0].get('greenspace_score', 0),
-                'Air Quality': area_data.iloc[0].get('air_quality_score', 0),
-                'Safety': area_data.iloc[0].get('community_safety_score', 0),
-                'Education': area_data.iloc[0].get('education_score', 0),
-                'Primary Education Score': area_data.iloc[0].get('primary_education_score', 0),
-                'Secondary Education Score': area_data.iloc[0].get('secondary_education_score', 0),
-                'Healthcare': area_data.iloc[0].get('healthcare_score', 0),
-                'Childcare': area_data.iloc[0].get('childcare_score', 0)
-            }
-            historical_scores.append(scores)
-    return pd.DataFrame(historical_scores)
+# HELPER FUNCTIONS Shared by LSOA & Ward
 
-#HELPER FUNCTIONS Shared by LSOA & Ward
-
-#Get and display primary schools
+# Get and display primary schools
 def get_primary_schools(lsoa_df):
-    """
-    Extracts primary school data from a dataframe of LSOAs
-
-    Returns:
-    - df (DataFrame): For display (Name, Scores, Year)
-    - school_names (list): List of unique school names
-    - school_urns_df (DataFrame): For historical lookup (School Name, URN)
-    """
+    """Extracts primary school data from a dataframe of LSOAs"""
     all_primary_schools = []
+    # If no school data columns exist, return empty
+    if not any('primary_school_' in col for col in lsoa_df.columns):
+        return pd.DataFrame(), [], pd.DataFrame()
+
     for _, lsoa_row in lsoa_df.iterrows():
         for i in range(1, 4):
+            # Try likely column names (primary_school_1_name is standard, but could differ)
             name = lsoa_row.get(f'primary_school_{i}_name')
             urn = lsoa_row.get(f'primary_school_{i}_urn')
-            if name and name != 'N/A' and urn:
+
+            if name and pd.notna(name) and name != 'N/A' and urn and pd.notna(urn):
                 year_val = lsoa_row.get(f'primary_school_{i}_data_year', 0)
                 all_primary_schools.append({
                     "School Name": name,
                     "% Meeting Standard": lsoa_row.get(f'primary_school_{i}_pass_rate', np.nan),
                     "Avg. Scaled Score": lsoa_row.get(f'primary_school_{i}_avg_scaled_score', np.nan),
-                    "Year": int(year_val) if year_val != 0 else 'N/A',
-                    "URN": urn
+                    "Year": int(year_val) if year_val != 0 and pd.notna(year_val) else 'N/A',
+                    "URN": str(int(float(urn)))  # Ensure URN is stringified clean integer
                 })
 
     if not all_primary_schools:
         return pd.DataFrame(), [], pd.DataFrame()
 
     df = pd.DataFrame(all_primary_schools)
-    df = df.replace(0, np.nan)
     school_urns_df = df[['School Name', 'URN']].drop_duplicates()
     df.drop_duplicates(subset=["School Name"], inplace=True)
-    df.sort_values(by="Avg. Scaled Score", ascending=False, inplace=True)
+    if "Avg. Scaled Score" in df.columns:
+        df.sort_values(by="Avg. Scaled Score", ascending=False, inplace=True)
     return df.drop(columns=['URN']), df['School Name'].tolist(), school_urns_df
 
 
-#Get and display secondary schools
+# Get and display secondary schools
 def get_secondary_schools(lsoa_df, school_type='state'):
-    """
-    Extracts secondary school data from a dataframe of LSOAs,
-    filtering for either 'state' or 'independent' schools.
-
-    Returns:
-    - df (DataFrame): For display (Name, Scores, Year, Type)
-    - school_names (list): List of unique school names
-    - school_urns_df (DataFrame): For historical lookup (School Name, URN)
-    """
+    """Extracts secondary school data from a dataframe of LSOAs"""
     all_schools = []
+    # If no school data columns exist, return empty
+    if not any('school_' in col for col in lsoa_df.columns):
+        return pd.DataFrame(), [], pd.DataFrame()
+
     for _, lsoa_row in lsoa_df.iterrows():
         for i in range(1, 4):
             name = lsoa_row.get(f'school_{i}_name')
@@ -255,49 +188,45 @@ def get_secondary_schools(lsoa_df, school_type='state'):
             if (school_type == 'independent' and not is_ind) or (school_type == 'state' and is_ind):
                 continue
 
-            if name and name != 'N/A' and urn:
+            if name and pd.notna(name) and name != 'N/A' and urn and pd.notna(urn):
                 year_val = lsoa_row.get(f'school_{i}_data_year', 0)
                 all_schools.append({
                     "School Name": name,
                     "Progress 8": lsoa_row.get(f'school_{i}_progress_8', np.nan),
                     "Attainment 8": lsoa_row.get(f'school_{i}_attainment_8', np.nan),
-                    "Year": int(year_val) if year_val != 0 else 'N/A',
+                    "Year": int(year_val) if year_val != 0 and pd.notna(year_val) else 'N/A',
                     "Type": nftype,
-                    "URN": urn
+                    "URN": str(int(float(urn)))
                 })
 
     if not all_schools:
         return pd.DataFrame(), [], pd.DataFrame()
 
     df = pd.DataFrame(all_schools)
-    df = df.replace(0, np.nan)
     school_urns_df = df[['School Name', 'URN']].drop_duplicates()
     df.drop_duplicates(subset=["School Name"], inplace=True)
-    df.sort_values(by="Attainment 8", ascending=False, inplace=True)
+    if "Attainment 8" in df.columns:
+        df.sort_values(by="Attainment 8", ascending=False, inplace=True)
     return df.drop(columns=['URN']), df['School Name'].tolist(), school_urns_df
 
 
-#Display historical school data
+# Display historical school data
 def display_primary_school_history(school_urns_df, primary_historical_df):
-    """
-    Displays historical performance tables for a given set of schools.
-    - school_urns_df: A DataFrame with columns ['School Name', 'URN']
-    - primary_historical_df: The master historical data from session state
-    """
     st.markdown("##### Historical School Performance (Table)")
-    if not primary_historical_df.empty:
+    if not primary_historical_df.empty and not school_urns_df.empty:
         hist_df = primary_historical_df.rename(columns={
             'URN': 'urn',
             'avg_ks2_pass_rate': '% Meeting Standard',
             'avg_primary_scaled_score': 'Avg. Scaled Score'
         })
-        unique_urns = school_urns_df['URN'].unique()
+        hist_df['urn'] = hist_df['urn'].astype(str)
+        unique_urns = school_urns_df['URN'].astype(str).unique()
         chart_data = hist_df[hist_df['urn'].isin(unique_urns)].copy()
 
         if not chart_data.empty:
             chart_data = chart_data.merge(school_urns_df, left_on='urn', right_on='URN', how='left')
 
-            #Table 1 - % Meeting Standard
+            # Table 1 - % Meeting Standard
             st.markdown("**Historical: % Meeting Standard (R,W,M)**")
             table_pass_rate = chart_data.pivot_table(
                 index='School Name',
@@ -306,13 +235,13 @@ def display_primary_school_history(school_urns_df, primary_historical_df):
                 aggfunc='mean'
             ).round(0)
             table_pass_rate = table_pass_rate.reindex(sorted(table_pass_rate.columns), axis=1)
-            table_pass_rate = table_pass_rate.where(~table_pass_rate.isna(), np.nan)
+            # handle NaNs gracefully for display
             st.dataframe(table_pass_rate, width='stretch', column_config={
                 year: st.column_config.NumberColumn(f"{year}", format="%d%%")
                 for year in table_pass_rate.columns
             })
 
-            #Table 2 - Avg Scaled Score
+            # Table 2 - Avg Scaled Score
             st.markdown("**Historical: Average Scaled Score**")
             table_scaled_score = chart_data.pivot_table(
                 index='School Name',
@@ -321,7 +250,6 @@ def display_primary_school_history(school_urns_df, primary_historical_df):
                 aggfunc='mean'
             ).round(1)
             table_scaled_score = table_scaled_score.reindex(sorted(table_scaled_score.columns), axis=1)
-            table_scaled_score = table_scaled_score.where(~table_scaled_score.isna(), np.nan)
             st.dataframe(table_scaled_score, width='stretch', column_config={
                 year: st.column_config.NumberColumn(f"{year}", format="%.1f")
                 for year in table_scaled_score.columns
@@ -332,27 +260,23 @@ def display_primary_school_history(school_urns_df, primary_historical_df):
         st.info("Historical primary school data is loading or not available.")
 
 
-#Display historical secondary school data
+# Display historical secondary school data
 def display_secondary_school_history(school_urns_df, secondary_historical_df):
-    """
-    Displays historical performance tables for a given set of schools.
-    - school_urns_df: A DataFrame with columns ['School Name', 'URN']
-    - secondary_historical_df: The master historical data from session state
-    """
     st.markdown("##### Historical School Performance (Table)")
-    if not secondary_historical_df.empty:
+    if not secondary_historical_df.empty and not school_urns_df.empty:
         hist_df = secondary_historical_df.rename(columns={
             'URN': 'urn',
             'avg_progress_8': 'Progress 8',
             'avg_attainment_8': 'Attainment 8'
         })
-        unique_urns = school_urns_df['URN'].unique()
+        hist_df['urn'] = hist_df['urn'].astype(str)
+        unique_urns = school_urns_df['URN'].astype(str).unique()
         chart_data = hist_df[hist_df['urn'].isin(unique_urns)].copy()
 
         if not chart_data.empty:
             chart_data = chart_data.merge(school_urns_df, left_on='urn', right_on='URN', how='left')
 
-            #Table 1 - Progress 8
+            # Table 1 - Progress 8
             st.markdown("**Historical: Progress 8**")
             table_p8 = chart_data.pivot_table(
                 index='School Name',
@@ -361,13 +285,12 @@ def display_secondary_school_history(school_urns_df, secondary_historical_df):
                 aggfunc='mean'
             ).round(2)
             table_p8 = table_p8.reindex(sorted(table_p8.columns), axis=1)
-            table_p8 = table_p8.where(~table_p8.isna(), np.nan)
             st.dataframe(table_p8, width='stretch', column_config={
                 year: st.column_config.NumberColumn(f"{year}", format="%.2f")
                 for year in table_p8.columns
             })
 
-            #Table 2 - Attainment 8
+            # Table 2 - Attainment 8
             st.markdown("**Historical: Attainment 8**")
             table_a8 = chart_data.pivot_table(
                 index='School Name',
@@ -376,7 +299,6 @@ def display_secondary_school_history(school_urns_df, secondary_historical_df):
                 aggfunc='mean'
             ).round(1)
             table_a8 = table_a8.reindex(sorted(table_a8.columns), axis=1)
-            table_a8 = table_a8.where(~table_a8.isna(), np.nan)
             st.dataframe(table_a8, width='stretch', column_config={
                 year: st.column_config.NumberColumn(f"{year}", format="%.1f")
                 for year in table_a8.columns
@@ -386,91 +308,93 @@ def display_secondary_school_history(school_urns_df, secondary_historical_df):
     else:
         st.info("Historical secondary school data is loading or not available.")
 
-#MAIN DISPLAY - Split by whether in Ward or LSOA level view
 
-#View 1: LSOA Level
+# MAIN DISPLAY - Split by whether in Ward or LSOA level view
+
+# View 1: LSOA Level
 if st.session_state.get("selected_lsoa_code"):
     lsoa_code = st.session_state.selected_lsoa_code
+    # Use 2024 Scored Data for the Top Box
     lsoa_data_series = latest_lsoa_data[latest_lsoa_data["area_code"] == lsoa_code]
 
     if lsoa_data_series.empty:
-        st.error(f"No data found for this LSOA in the latest year ({latest_year}). Please select another area.")
+        st.error(f"No data found for this LSOA. Please select another area.")
         st.stop()
 
     lsoa_data = lsoa_data_series.iloc[0]
     st.subheader(f"Neighbourhood: *{lsoa_data['display_name']}*")
-    st.markdown(f"##### Latest Data ({latest_year})")
-    st.caption("Based on your Weightings")
+    st.caption(f"Data Focus: {TARGET_YEAR}")
 
     with st.container(border=True):
         if st.button(f"Part of **{lsoa_data['WD25NM']}** ward (click to view ward details)"):
             st.session_state.pop('selected_lsoa_code', None)
             st.rerun()
 
-    m1, m2 = st.columns(2)
-    with m1:
+    # --- TOP SCORING SECTION (2024 COMPOSITE) ---
+    st.markdown("### Thrive Index Score (2024)")
+
+    final_score_raw = lsoa_data.get('Final_CI_Score')
+    if pd.isna(final_score_raw):
+        st.warning("Composite Score not available for this area.")
+    else:
+        final_score = int(round(final_score_raw))
+        m1, m2 = st.columns(2)
+        with m1:
+            with st.container(border=True):
+                st.metric(label="Final Composite Score", value=f"{final_score}/100")
+        with m2:
+            with st.container(border=True):
+                pop_val = lsoa_data.get('population', 0)
+                st.metric(label="Population", value=f"{int(pop_val):,}" if pd.notna(pop_val) else "N/A")
+
         with st.container(border=True):
-            st.metric(label="Thrive Index Score", value=f"{lsoa_data.get('composite_score', 0):.0f}/100")
-    with m2:
-        with st.container(border=True):
-            st.metric(label="Population", value=f"{lsoa_data.get('population', 0):,}")
+            st.subheader("5 Core Pillars Breakdown")
+            c1, c2, c3, c4, c5 = st.columns(5)
 
-    with st.container(border=True):
-        st.subheader(f"Indicator Breakdown ({latest_year})")
-        ind1, ind2, ind3, ind4, ind5, ind6 = st.columns(6)
-        with ind1:
-            #Greenspace (Informational Only)
-            greenspace_percent = lsoa_data.get('greenspace_percentage', 0)
-            st.metric(label="Greenspace", value=f"{greenspace_percent:.1f}%")
-            st.caption("Area coverage (Informational)")
-        with ind2:
-            st.metric(label="Air Quality", value=f"{lsoa_data.get('air_quality_score', 0):.0f}/100")
-            st.caption(
-                f"NO₂: {lsoa_data.get('no2_mean_concentration', 0):.1f} | PM₂.₅: {lsoa_data.get('pm25_mean_concentration', 0):.1f} µg/m³")
-        with ind3:
-            st.metric(label="Safety", value=f"{lsoa_data.get('community_safety_score', 100):.0f}/100")
-            st.caption(f"{lsoa_data.get('crime_rate_per_1000', 0):.1f} crimes per 1k people")
-        with ind4:
-            st.metric(label="Education", value=f"{lsoa_data.get('education_score', 0):.0f}/100")
-            st.caption(
-                f"Primary: {lsoa_data.get('primary_education_score', 0):.0f} | Secondary: {lsoa_data.get('secondary_education_score', 0):.0f}")
-        with ind5:
-            st.metric(label="Healthcare", value=f"{lsoa_data.get('healthcare_score', 0):.0f}/100")
-            st.caption(
-                f"{lsoa_data.get('avg_distance_to_gp_km', 0):.1f} km to GP | {lsoa_data.get('avg_gp_satisfaction', 0):.0f}% satisfaction")
-        with ind6:
-            st.metric(label="Childcare", value=f"{lsoa_data.get('childcare_score', 0):.0f}/100")
-            st.caption(
-                f"{lsoa_data.get('avg_distance_to_childcare_km', 0):.1f} km | {lsoa_data.get('avg_childcare_quality_score', 0):.1f}/4.0 quality")
 
-    #Thrive Score Trend Container
-    with st.container(border=True):
-        st.subheader(f"Thrive Score Trend ({all_years[0]} - {all_years[-1]})")
-        st.caption("Shows how the scores for this neighbourhood have changed over time, based on your weights.")
-        historical_df = get_historical_scores(lsoa_code, 'lsoa', norm_weights_tuple)
+            def get_fmt_score(row, key):
+                val = row.get(key)
+                if pd.notna(val):
+                    return f"{int(round(val))}/100"
+                return "N/A"
 
-        if not historical_df.empty:
-            historical_df = historical_df.set_index('Year')
-            st.line_chart(historical_df)
-            with st.expander("View Score Data Table"):
-                st.dataframe(historical_df.style.format("{:.0f}"))
-        else:
-            st.info("No historical data available to plot.")
 
-    #House Price Trend Container
+            with c1:
+                st.metric("Socio-Economic", get_fmt_score(lsoa_data, 'Socio-Economic_Deprivation_Score'))
+                st.caption("Deprivation & Crime")
+            with c2:
+                st.metric("Env. Safety", get_fmt_score(lsoa_data, 'Environmental_Safety_Score'))
+                st.caption("Air Quality")
+            with c3:
+                st.metric("Secondary Ed.", get_fmt_score(lsoa_data, 'Secondary_Education_Score'))
+                st.caption("Progress 8 & Attainment")
+            with c4:
+                st.metric("Primary Ed.", get_fmt_score(lsoa_data, 'Primary_Education_Score'))
+                st.caption("KS2 Performance")
+            with c5:
+                st.metric("Childcare", get_fmt_score(lsoa_data, 'Childcare_Quality_Score'))
+                st.caption("Ofsted Quality")
+
+    # --- HISTORICAL / CONTEXT DATA SECTION ---
+    # Need context data from master_gdf for history
+
+    # House Price Trend Container
     with st.container(border=True):
         st.subheader("Median House Price Trend")
         latest_date_obj = st.session_state.get('latest_house_price_date')
         latest_period_label = latest_date_obj.strftime('%b %Y') if latest_date_obj else 'Latest'
-        latest_price = lsoa_data.get('latest_median_house_price', 0)
+        latest_price = lsoa_data.get('latest_median_house_price')
+
         with st.container(border=True):
-            st.metric(label=f"Latest Price ({latest_period_label})", value=f"£{latest_price:,}")
+            price_val = f"£{int(latest_price):,}" if pd.notna(latest_price) else "N/A"
+            st.metric(label=f"Latest Price ({latest_period_label})", value=price_val)
 
         lsoa_history_all = st.session_state.get('lsoa_house_price_history')
         sw_history = st.session_state.get('sw_house_price_history')
-        if lsoa_history_all is not None and not lsoa_history_all.empty and sw_history is not None and not sw_history.empty:
+
+        if lsoa_history_all is not None and not lsoa_history_all.empty:
             lsoa_history = lsoa_history_all[lsoa_history_all['area_code'] == lsoa_code].copy()
-            if not lsoa_history.empty:
+            if not lsoa_history.empty and sw_history is not None:
                 lsoa_history_chart = lsoa_history[['date', 'median_house_price']].rename(
                     columns={'median_house_price': 'Neighbourhood'}
                 )
@@ -484,9 +408,9 @@ if st.session_state.get("selected_lsoa_code"):
             else:
                 st.info("No historical house price data available for this specific neighbourhood.")
         else:
-            st.info("Historical house price data is not available or still loading.")
+            st.info("Historical house price data is not available.")
 
-    #Crime Breakdown
+    # Crime Breakdown
     with st.container(border=True):
         st.subheader("Crime Breakdown (Time-Series)")
         lsoa_crime_history = monthly_crime_df[monthly_crime_df['area_code'] == lsoa_code]
@@ -535,41 +459,51 @@ if st.session_state.get("selected_lsoa_code"):
         else:
             st.info("No detailed crime history available for this neighbourhood.")
 
-    #Air Quality Trend Container
+    # Air Quality Trend Container
     with st.container(border=True):
         st.subheader(f"Air Quality Trend ({all_years[0]} - {all_years[-1]})")
-        st.caption(
-            "Shows the annual mean concentration for Nitrogen Dioxide (NO₂) and fine particulate matter (PM₂.₅) in micrograms per cubic metre (µg/m³). Lower values are better.")
 
+        # Query MASTER GDF directly for history
         air_quality_history = st.session_state['master_gdf'][
             st.session_state['master_gdf']['area_code'] == lsoa_code
             ].copy()
 
         if not air_quality_history.empty:
-            air_quality_history['Year'] = air_quality_history['year'].astype(str)
+            air_quality_history = air_quality_history.dropna(subset=['year'])
+            air_quality_history['Year'] = air_quality_history['year'].astype(int).astype(str)
             air_quality_history = air_quality_history.set_index('Year')
             chart_data = air_quality_history[['no2_mean_concentration', 'pm25_mean_concentration']].rename(columns={
                 'no2_mean_concentration': 'NO₂ (µg/m³)',
                 'pm25_mean_concentration': 'PM₂.₅ (µg/m³)'
             })
 
-            st.line_chart(chart_data)
-            with st.expander("View Air Quality Data Table"):
-                st.dataframe(chart_data.style.format("{:.1f}"))
+            chart_data = chart_data.dropna(how='all')
+
+            if not chart_data.empty:
+                st.line_chart(chart_data)
+                with st.expander("View Air Quality Data Table"):
+                    st.dataframe(chart_data.style.format("{:.1f}"))
+            else:
+                st.info("No air quality data available for this area.")
         else:
             st.info("No historical air quality data available to plot.")
 
-    #Healthcare Details Container
+    # Healthcare Details Container
     with st.container(border=True):
         st.subheader("Healthcare Details")
+        dist_val = lsoa_data.get('avg_distance_to_gp_km')
+        dist_str = f"{dist_val:.1f} km" if pd.notna(dist_val) else "Unknown"
         st.caption(
-            f"Details of the 3 nearest GP practices. Average distance from this neighbourhood is **{lsoa_data.get('avg_distance_to_gp_km', 0):.1f} km**.")
+            f"Details of the 3 nearest GP practices. Average distance from this neighbourhood is **{dist_str}**.")
+
         gp_data = []
         gp_org_codes = []
         for i in range(1, 4):
-            name = lsoa_data.get(f'gp_{i}_name')
+            # FIX: Updated column name from 'name' to 'gp_name' as per process_healthcare_data.py pivot
+            name = lsoa_data.get(f'gp_{i}_gp_name')
             org_code = lsoa_data.get(f'gp_{i}_org_code')
-            if name and name != 'N/A' and org_code:
+
+            if name and pd.notna(name) and name != 'N/A' and org_code:
                 gp_data.append({
                     "GP Practice Name": name,
                     "Patient Satisfaction": lsoa_data.get(f'gp_{i}_satisfaction', np.nan),
@@ -591,16 +525,9 @@ if st.session_state.get("selected_lsoa_code"):
                 hide_index=True
             )
 
-            #Historical GP Satisfaction Table
+            # Historical GP Satisfaction Table
             st.markdown("##### Historical Patient Satisfaction (Table)")
             if not gp_historical_df.empty:
-                gp_historical_df = gp_historical_df.rename(columns={
-                    'practice_code': 'org_code',
-                    'ods_code': 'org_code',
-                    'code': 'org_code'
-                })
-
-                #Filter for all unique GP practices in ward
                 unique_org_codes = list(set(gp_org_codes))
                 chart_data = gp_historical_df[gp_historical_df['org_code'].isin(unique_org_codes)].copy()
 
@@ -610,7 +537,6 @@ if st.session_state.get("selected_lsoa_code"):
                     gp_names_df = gp_df[['GP Practice Name', 'org_code']].drop_duplicates()
                     chart_data = chart_data.merge(gp_names_df, on='org_code', how='left')
 
-                    #Pivot to wide table
                     table = chart_data.pivot_table(
                         index='GP Practice Name',
                         columns='year',
@@ -619,8 +545,6 @@ if st.session_state.get("selected_lsoa_code"):
                     ).round(1)
 
                     table = table.reindex(sorted(table.columns), axis=1)
-                    table = table.where(~table.isna(), 'N/A')
-
                     st.dataframe(
                         table,
                         width='stretch',
@@ -635,23 +559,28 @@ if st.session_state.get("selected_lsoa_code"):
         else:
             st.info("No GP data available for this neighbourhood.")
 
-    #Childcare Details Container
+    # Childcare Details Container
     with st.container(border=True):
         st.subheader("Childcare Details")
+        dist_val = lsoa_data.get('avg_distance_to_childcare_km')
+        dist_str = f"{dist_val:.1f} km" if pd.notna(dist_val) else "Unknown"
         st.caption(
-            f"Details of the 3 nearest childcare providers. Average distance from this neighbourhood is **{lsoa_data.get('avg_distance_to_childcare_km', 0):.1f} km**.")
+            f"Details of the 3 nearest childcare providers. Average distance from this neighbourhood is **{dist_str}**.")
+
         childcare_data = []
         childcare_urns = []
         for i in range(1, 4):
             name = lsoa_data.get(f'childcare_{i}_name')
             urn = lsoa_data.get(f'childcare_{i}_urn')
-            if name and name != 'N/A' and urn:
-                raw_rating = str(lsoa_data.get(f'childcare_{i}_quality_rating', 'N/A')).lower()
+            if name and pd.notna(name) and name != 'N/A' and urn:
+                # FIX: Updated to 'rating_str' as per process_childcare.py
+                raw_rating = str(lsoa_data.get(f'childcare_{i}_rating_str', 'N/A')).lower()
                 childcare_data.append({
                     "Provider Name": name,
                     "Quality": OFSTED_RATING_MAP.get(raw_rating, 'N/A'),
                     "Places": lsoa_data.get(f'childcare_{i}_places', 0),
-                    "Distance (km)": lsoa_data.get(f'childcare_{i}_distance_km', 0),
+                    "Distance (km)": lsoa_data.get(f'childcare_{i}_distance', 0),
+                    # Corrected column name from distance_km
                     "provider_urn": urn
                 })
                 childcare_urns.append(urn)
@@ -672,24 +601,21 @@ if st.session_state.get("selected_lsoa_code"):
                 },
                 hide_index=True
             )
-            #Historical Childcare Table
+            # Historical Childcare Table
             st.markdown("##### Historical Provider Data (Table)")
             if not childcare_historical_df.empty:
-                hist_df = childcare_historical_df.rename(columns={
-                    'Provider URN': 'provider_urn'
-                })
+                hist_df = childcare_historical_df.rename(columns={'Provider URN': 'provider_urn'})
                 unique_urns = list(set(childcare_urns))
                 chart_data = hist_df[hist_df['provider_urn'].isin(unique_urns)].copy()
                 if not chart_data.empty:
                     provider_names_df = childcare_df[['Provider Name', 'provider_urn']].drop_duplicates()
-                    # Use suffixes to keep the new 'Provider Name' as-is, and rename the old one to '_old'
                     chart_data = chart_data.merge(provider_names_df, on='provider_urn', how='left',
                                                   suffixes=('_old', ''))
+
                     chart_data['Quality'] = chart_data['quality_rating'].astype(str).str.lower().map(
                         OFSTED_RATING_MAP).fillna('N/A')
-                    chart_data['Places'] = pd.to_numeric(chart_data['places'], errors='coerce').fillna(0).astype(
-                        int)
-                    #Pivot for Quality
+                    chart_data['Places'] = pd.to_numeric(chart_data['places'], errors='coerce').fillna(0).astype(int)
+
                     st.markdown("**Historical Quality Rating**")
                     table_quality = chart_data.pivot_table(
                         index='Provider Name',
@@ -699,7 +625,7 @@ if st.session_state.get("selected_lsoa_code"):
                     ).fillna('N/A')
                     table_quality = table_quality.reindex(sorted(table_quality.columns), axis=1)
                     st.dataframe(table_quality, width='stretch')
-                    #Pivot for Places
+
                     st.markdown("**Historical Registered Places**")
                     table_places = chart_data.pivot_table(
                         index='Provider Name',
@@ -719,15 +645,14 @@ if st.session_state.get("selected_lsoa_code"):
         else:
             st.info("No childcare data available for this neighbourhood.")
 
-    #Primary Education Details Container
+    # Primary Education Details Container
     with st.container(border=True):
         st.subheader("Primary School Details")
-        st.caption(
-            "Performance of primary schools associated with this neighbourhood (based on latest available FINAL data)")
+        st.caption("Performance of primary schools associated with this neighbourhood (based on latest available data)")
 
         tab1, tab2 = st.tabs(["Schools near this Neighbourhood", "Schools near Neighbouring Neighbourhoods"])
 
-        #Tab 1 - Primary Schools near this Neighbourhood/LSOA
+        # Tab 1 - Primary Schools near this Neighbourhood/LSOA
         with tab1:
             lsoa_df = latest_lsoa_data[latest_lsoa_data["area_code"] == lsoa_code]
             lsoa_primary_schools_df, schools_near_this_lsoa_primary, lsoa_primary_urns_df = get_primary_schools(lsoa_df)
@@ -746,10 +671,9 @@ if st.session_state.get("selected_lsoa_code"):
             else:
                 st.info("No primary school data available for this neighbourhood.")
 
-        #Tab 2 - Primary Schools near Neighbouring LSOAs
+        # Tab 2 - Primary Schools near Neighbouring LSOAs
         with tab2:
             try:
-                #Find neighbouring LSOAs using intersects
                 selected_lsoa_geom = lsoa_index_gdf_base[lsoa_index_gdf_base['area_code'] == lsoa_code].geometry.iloc[0]
                 intersecting_lsoas_gdf = lsoa_index_gdf_base[lsoa_index_gdf_base.intersects(selected_lsoa_geom)]
                 neighbouring_lsoas_gdf = intersecting_lsoas_gdf[intersecting_lsoas_gdf['area_code'] != lsoa_code]
@@ -783,9 +707,8 @@ if st.session_state.get("selected_lsoa_code"):
 
             except Exception as e:
                 st.error("Could not process neighbouring neighbourhood data.")
-                print(e)
 
-    #Secondary Education Details Container
+    # Secondary Education Details Container
     with st.container(border=True):
         st.subheader("Secondary School Details")
         st.caption(
@@ -795,11 +718,12 @@ if st.session_state.get("selected_lsoa_code"):
             ["State Schools near this Neighbourhood", "State Schools near Neighbouring Neighbourhoods",
              "Independent Schools"])
 
-        #Tab 1 - State Secondary Schools near this Neighbourhood/LSOA
+        # Tab 1 - State Secondary Schools near this Neighbourhood/LSOA
         with tab1:
             if 'lsoa_df' not in locals():
                 lsoa_df = latest_lsoa_data[latest_lsoa_data["area_code"] == lsoa_code]
-            lsoa_schools_df, schools_near_this_lsoa_sec, lsoa_secondary_urns_df = get_secondary_schools(lsoa_df, school_type='state')
+            lsoa_schools_df, schools_near_this_lsoa_sec, lsoa_secondary_urns_df = get_secondary_schools(lsoa_df,
+                                                                                                        school_type='state')
 
             if not lsoa_schools_df.empty:
                 st.dataframe(
@@ -815,11 +739,10 @@ if st.session_state.get("selected_lsoa_code"):
             else:
                 st.info("No state secondary school data available for this neighbourhood.")
 
-        #Tab 2 - State Secondary Schools near Neighbouring LSOAs
+        # Tab 2 - State Secondary Schools near Neighbouring LSOAs
         with tab2:
             try:
                 if 'neighbouring_lsoa_codes' not in locals():
-                    #Find neighbouring LSOAs using intersects
                     selected_lsoa_geom = \
                         lsoa_index_gdf_base[lsoa_index_gdf_base['area_code'] == lsoa_code].geometry.iloc[0]
                     intersecting_lsoas_gdf = lsoa_index_gdf_base[lsoa_index_gdf_base.intersects(selected_lsoa_geom)]
@@ -859,9 +782,9 @@ if st.session_state.get("selected_lsoa_code"):
                 else:
                     st.info("This neighbourhood has no neighbouring neighbourhoods in the dataset.")
             except Exception as e:
-                st.error(f"Could not process neighbouring neighbourhood data: {e}")
+                st.error(f"Could not process neighbouring neighbourhood data")
 
-        #Tab 3 - Independent Secondary Schools
+        # Tab 3 - Independent Secondary Schools
         with tab3:
             st.info("""
             Independent schools ('IND') are not required to publish the same performance data as state schools 
@@ -869,12 +792,10 @@ if st.session_state.get("selected_lsoa_code"):
             near this neighbourhood or neighbouring neighbourhoods.
             """)
 
-            #Get independent schools from lsoa
             ind_schools_this_lsoa_df, _, _ = get_secondary_schools(
                 lsoa_df, school_type='independent'
             )
 
-            #Get independent schools from neighbouring lsoas
             if 'neighbour_lsoa_data' in locals() and not neighbour_lsoa_data.empty:
                 ind_schools_neighbour_df, _, _ = get_secondary_schools(
                     neighbour_lsoa_data, school_type='independent'
@@ -882,13 +803,11 @@ if st.session_state.get("selected_lsoa_code"):
             else:
                 ind_schools_neighbour_df = pd.DataFrame()
 
-            #Combine
             all_ind_schools_df = pd.concat([ind_schools_this_lsoa_df, ind_schools_neighbour_df])
             if not all_ind_schools_df.empty:
                 all_ind_schools_df.drop_duplicates(subset=["School Name"], inplace=True)
                 all_ind_schools_df.sort_values(by="School Name", ascending=True, inplace=True)
 
-                #Only Need Name
                 st.dataframe(
                     all_ind_schools_df[['School Name']],
                     hide_index=True,
@@ -897,7 +816,7 @@ if st.session_state.get("selected_lsoa_code"):
             else:
                 st.info("No independent secondary schools found near this neighbourhood or its neighbours.")
 
-    #Deprivation Details Container
+    # Deprivation Details Container
     with st.container(border=True):
         st.subheader("Deprivation Details (IMD 2019)")
         st.caption("""
@@ -905,12 +824,14 @@ if st.session_state.get("selected_lsoa_code"):
         Areas are grouped into 10 'deciles', where **1 is the most deprived** 10% in England, 
         and **10 is the least deprived** 10%.
         """)
-        overall_decile = lsoa_data.get('IMD_Decile', 0)
-        if overall_decile == 0:
+        # We calculated deciles in utils.py so they should be available now
+        overall_decile = lsoa_data.get('IMD_Decile')
+
+        if pd.isna(overall_decile):
             st.metric(label="Overall Deprivation Decile", value="N/A")
             st.info("IMD data is not available for this area (it may be outside England).")
         else:
-            st.metric(label="Overall Deprivation Decile", value=f"{overall_decile} / 10")
+            st.metric(label="Overall Deprivation Decile", value=f"{int(overall_decile)} / 10")
             decile_data = {
                 'Deprivation Type': ['Income', 'Employment', 'Health'],
                 'Decile': [
@@ -919,7 +840,7 @@ if st.session_state.get("selected_lsoa_code"):
                     lsoa_data.get('Health_Decile', 0)
                 ]
             }
-            decile_df = pd.DataFrame(decile_data)
+            decile_df = pd.DataFrame(decile_data).fillna(0)
             st.write("**Deprivation Breakdown (Deciles)**")
             fig = px.bar(
                 decile_df,
@@ -933,86 +854,77 @@ if st.session_state.get("selected_lsoa_code"):
             fig.update_traces(textposition='outside')
             st.plotly_chart(fig, width='stretch')
 
-#View 2 - Ward Level
+# View 2 - Ward Level
 elif st.session_state.get("selected_ward_code"):
     ward_code = st.session_state.selected_ward_code
     ward_data_series = latest_ward_data[latest_ward_data["WD25CD"] == ward_code]
 
     if ward_data_series.empty:
-        st.error(f"No data found for this Ward in the latest year ({latest_year}). Please select another area.")
+        st.error(f"No data found for this Ward. Please select another area.")
         st.stop()
 
     ward_data = ward_data_series.iloc[0]
 
     st.subheader(f"Ward: *{ward_data['WD25NM']}*")
-    st.markdown(f"##### Latest Data ({latest_year})")
-    st.caption("Based on your Weightings")
+    st.caption(f"Data Focus: {TARGET_YEAR}")
 
-    m1, m2 = st.columns(2)
-    with m1:
+    # --- TOP SCORING SECTION (WARD AVG) ---
+    st.markdown("### Thrive Index Score (Ward Average, 2024)")
+
+    final_score_raw = ward_data.get('Final_CI_Score')
+    if pd.isna(final_score_raw):
+        st.warning("Composite Score not available for this area.")
+    else:
+        final_score = int(round(final_score_raw))
+        m1, m2 = st.columns(2)
+        with m1:
+            with st.container(border=True):
+                st.metric(label="Thrive Index Score", value=f"{final_score}/100")
+        with m2:
+            with st.container(border=True):
+                pop_val = ward_data.get('population', 0)
+                st.metric(label="Total Population", value=f"{int(pop_val):,}" if pd.notna(pop_val) else "N/A")
+
         with st.container(border=True):
-            st.metric(label="Thrive Index Score", value=f"{ward_data.get('composite_score', 0):.0f}/100")
-    with m2:
-        with st.container(border=True):
-            st.metric(label="Total Population", value=f"{ward_data.get('population', 0):,}")
+            st.subheader("5 Core Pillars Breakdown (Average)")
+            c1, c2, c3, c4, c5 = st.columns(5)
 
-    with st.container(border=True):
-        st.subheader(f"Indicator Breakdown (Ward Averages, {latest_year})")
-        ind1, ind2, ind3, ind4, ind5, ind6 = st.columns(6)
-        with ind1:
-            #Greenspace (Informational Only)
-            greenspace_percent = ward_data.get('greenspace_percentage', 0)
-            st.metric(label="Greenspace", value=f"{greenspace_percent:.1f}%")
-            st.caption("Area coverage (Informational)")
-        with ind2:
-            st.metric(label="Air Quality", value=f"{ward_data.get('air_quality_score', 0):.0f}/100")
-            st.caption(
-                f"NO₂: {ward_data.get('no2_mean_concentration', 0):.1f} | PM₂.₅: {ward_data.get('pm25_mean_concentration', 0):.1f} µg/m³")
-        with ind3:
-            st.metric(label="Safety", value=f"{ward_data.get('community_safety_score', 100):.0f}/100")
-            st.caption(f"{ward_data.get('crime_rate_per_1000', 0):.1f} crimes per 1k people")
-        with ind4:
-            st.metric(label="Education", value=f"{ward_data.get('education_score', 0):.0f}/100")
-            st.caption(
-                f"Primary: {ward_data.get('primary_education_score', 0):.0f} | Secondary: {ward_data.get('secondary_education_score', 0):.0f}")
-        with ind5:
-            st.metric(label="Healthcare", value=f"{ward_data.get('healthcare_score', 0):.0f}/100")
-            st.caption(
-                f"{ward_data.get('avg_distance_to_gp_km', 0):.1f} km to GP | {ward_data.get('avg_gp_satisfaction', 0):.0f}% satisfaction")
-        with ind6:
-            st.metric(label="Childcare", value=f"{ward_data.get('childcare_score', 0):.0f}/100")
-            st.caption(
-                f"{ward_data.get('avg_distance_to_childcare_km', 0):.1f} km | {ward_data.get('avg_childcare_quality_score', 0):.1f}/4.0 quality")
 
-    #Thrive Score Trend Container
-    with st.container(border=True):
-        st.subheader(f"Thrive Score Trend ({all_years[0]} - {all_years[-1]})")
-        st.caption("Shows how the average scores for this ward have changed over time, based on your weights.")
-        historical_df = get_historical_scores(ward_code, 'ward', norm_weights_tuple)
+            def get_fmt_score(row, key):
+                val = row.get(key)
+                if pd.notna(val):
+                    return f"{int(round(val))}/100"
+                return "N/A"
 
-        if not historical_df.empty:
-            historical_df = historical_df.set_index('Year')
-            st.line_chart(historical_df)
-            with st.expander("View Score Data Table"):
-                st.dataframe(historical_df.style.format("{:.0f}"))
-        else:
-            st.info("No historical data available to plot.")
 
-    #House Price Trend Container
+            with c1:
+                st.metric("Socio-Economic", get_fmt_score(ward_data, 'Socio-Economic_Deprivation_Score'))
+            with c2:
+                st.metric("Env. Safety", get_fmt_score(ward_data, 'Environmental_Safety_Score'))
+            with c3:
+                st.metric("Secondary Ed.", get_fmt_score(ward_data, 'Secondary_Education_Score'))
+            with c4:
+                st.metric("Primary Ed.", get_fmt_score(ward_data, 'Primary_Education_Score'))
+            with c5:
+                st.metric("Childcare", get_fmt_score(ward_data, 'Childcare_Quality_Score'))
+
+    # House Price Trend Container
     with st.container(border=True):
         st.subheader("Median House Price Trend")
         latest_date_obj = st.session_state.get('latest_house_price_date')
         latest_period_label = latest_date_obj.strftime('%b %Y') if latest_date_obj else 'Latest'
-        latest_price = ward_data.get('latest_median_house_price', 0)
+        latest_price = ward_data.get('latest_median_house_price')
+
         with st.container(border=True):
-            st.metric(label=f"Latest Avg. Price ({latest_period_label})", value=f"£{latest_price:,}")
+            price_val = f"£{int(latest_price):,}" if pd.notna(latest_price) else "N/A"
+            st.metric(label=f"Latest Avg. Price ({latest_period_label})", value=price_val)
 
         ward_history_all = st.session_state.get('ward_house_price_history')
         sw_history = st.session_state.get('sw_house_price_history')
-        if ward_history_all is not None and not ward_history_all.empty and sw_history is not None and not sw_history.empty:
+        if ward_history_all is not None and not ward_history_all.empty:
             ward_history = ward_history_all[ward_history_all['area_code'] == ward_code].copy()
 
-            if not ward_history.empty:
+            if not ward_history.empty and sw_history is not None:
                 ward_history_chart = ward_history[['date', 'median_house_price']].rename(
                     columns={'median_house_price': 'Ward'}
                 )
@@ -1026,9 +938,9 @@ elif st.session_state.get("selected_ward_code"):
             else:
                 st.info("No historical house price data available for this ward.")
         else:
-            st.info("Historical house price data is not available or still loading.")
+            st.info("Historical house price data is not available.")
 
-    #Crime Breakdown
+    # Crime Breakdown
     with st.container(border=True):
         st.subheader("Crime Breakdown (Time-Series)")
         master_gdf = st.session_state['master_gdf']
@@ -1082,11 +994,9 @@ elif st.session_state.get("selected_ward_code"):
         else:
             st.info("No detailed crime history available for this ward.")
 
-    #Air Quality Trend Container
+    # Air Quality Trend Container
     with st.container(border=True):
         st.subheader(f"Air Quality Trend (Ward Average, {all_years[0]} - {all_years[-1]})")
-        st.caption(
-            "Shows the annual mean concentration for Nitrogen Dioxide (NO₂) and fine particulate matter (PM₂.₅) in micrograms per cubic metre (µg/m³). Lower values are better.")
 
         master_gdf = st.session_state['master_gdf']
         lsoas_in_ward_codes = master_gdf[master_gdf['WD25CD'] == ward_code]['area_code'].unique()
@@ -1108,25 +1018,33 @@ elif st.session_state.get("selected_ward_code"):
                 'pm25_mean_concentration': 'PM₂.₅ (µg/m³)'
             })
 
-            st.line_chart(chart_data)
-            with st.expander("View Air Quality Data Table"):
-                st.dataframe(chart_data.style.format("{:.1f}"))
+            chart_data = chart_data.dropna(how='all')
+
+            if not chart_data.empty:
+                st.line_chart(chart_data)
+                with st.expander("View Air Quality Data Table"):
+                    st.dataframe(chart_data.style.format("{:.1f}"))
+            else:
+                st.info("No air quality data available.")
         else:
             st.info("No historical air quality data available to plot.")
 
-    #Healthcare Details Container
+    # Healthcare Details Container
     with st.container(border=True):
         st.subheader("Healthcare Details")
+        dist_val = ward_data.get('avg_distance_to_gp_km')
+        dist_str = f"{dist_val:.1f} km" if pd.notna(dist_val) else "Unknown"
         st.caption(
-            f"Unique GP practices associated with this ward. The average distance to a GP across the ward is **{ward_data.get('avg_distance_to_gp_km', 0):.1f} km**.")
+            f"Unique GP practices associated with this ward. The average distance to a GP across the ward is **{dist_str}**.")
+
         neighbourhoods_in_ward_df = latest_lsoa_data[latest_lsoa_data["WD25CD"] == ward_code]
         all_gps = []
         gp_org_codes = []
         for _, lsoa_row in neighbourhoods_in_ward_df.iterrows():
             for i in range(1, 4):
-                name = lsoa_row.get(f'gp_{i}_name')
+                name = lsoa_row.get(f'gp_{i}_gp_name')
                 org_code = lsoa_row.get(f'gp_{i}_org_code')
-                if name and name != 'N/A' and org_code:
+                if name and pd.notna(name) and name != 'N/A' and org_code:
                     all_gps.append({
                         "GP Practice Name": name,
                         "Patient Satisfaction": lsoa_row.get(f'gp_{i}_satisfaction', np.nan),
@@ -1149,17 +1067,10 @@ elif st.session_state.get("selected_ward_code"):
                 hide_index=True
             )
 
-            #Historical GP Satisfaction Table
             st.markdown("##### Historical Patient Satisfaction (Table)")
             if not gp_historical_df.empty:
-                gp_historical_df = gp_historical_df.rename(columns={
-                    'practice_code': 'org_code',
-                    'ods_code': 'org_code',
-                    'code': 'org_code'
-                })
-
-                #Filter the 3 GPs linked to LSOA
-                chart_data = gp_historical_df[gp_historical_df['org_code'].isin(gp_org_codes)].copy()
+                unique_org_codes = list(set(gp_org_codes))
+                chart_data = gp_historical_df[gp_historical_df['org_code'].isin(unique_org_codes)].copy()
 
                 if not chart_data.empty:
                     if chart_data['satisfaction_pct'].max() <= 1:
@@ -1167,7 +1078,6 @@ elif st.session_state.get("selected_ward_code"):
                     gp_names_df = ward_gp_df[['GP Practice Name', 'org_code']].drop_duplicates()
                     chart_data = chart_data.merge(gp_names_df, on='org_code', how='left')
 
-                    #Pivot to show years as columns
                     table = chart_data.pivot_table(
                         index='GP Practice Name',
                         columns='year',
@@ -1176,8 +1086,6 @@ elif st.session_state.get("selected_ward_code"):
                     ).round(1)
 
                     table = table.reindex(sorted(table.columns), axis=1)
-                    table = table.where(~table.isna(), 'N/A')
-
                     st.dataframe(
                         table,
                         width='stretch',
@@ -1192,11 +1100,14 @@ elif st.session_state.get("selected_ward_code"):
         else:
             st.info("No GP data available for this ward.")
 
-    #Childcare Details Container
+    # Childcare Details Container
     with st.container(border=True):
         st.subheader("Childcare Details")
+        dist_val = ward_data.get('avg_distance_to_childcare_km')
+        dist_str = f"{dist_val:.1f} km" if pd.notna(dist_val) else "Unknown"
         st.caption(
-            f"Unique childcare providers associated with this ward. The average distance to a provider across the ward is **{ward_data.get('avg_distance_to_childcare_km', 0):.1f} km**.")
+            f"Unique childcare providers associated with this ward. The average distance to a provider across the ward is **{dist_str}**.")
+
         neighbourhoods_in_ward_df = latest_lsoa_data[latest_lsoa_data["WD25CD"] == ward_code]
         all_childcare = []
         childcare_urns = []
@@ -1204,8 +1115,9 @@ elif st.session_state.get("selected_ward_code"):
             for i in range(1, 4):
                 name = lsoa_row.get(f'childcare_{i}_name')
                 urn = lsoa_row.get(f'childcare_{i}_urn')
-                if name and name != 'N/A' and urn:
-                    raw_rating = str(lsoa_row.get(f'childcare_{i}_quality_rating', 'N/A')).lower()
+                if name and pd.notna(name) and name != 'N/A' and urn:
+                    # FIX: Correct column name
+                    raw_rating = str(lsoa_row.get(f'childcare_{i}_rating_str', 'N/A')).lower()
                     all_childcare.append({
                         "Provider Name": name,
                         "Quality": OFSTED_RATING_MAP.get(raw_rating, 'N/A'),
@@ -1228,24 +1140,21 @@ elif st.session_state.get("selected_ward_code"):
                 },
                 hide_index=True
             )
-            #Historical Childcare Table
+
             st.markdown("##### Historical Provider Data (Table)")
             if not childcare_historical_df.empty:
-                hist_df = childcare_historical_df.rename(columns={
-                    'Provider URN': 'provider_urn'
-                })
+                hist_df = childcare_historical_df.rename(columns={'Provider URN': 'provider_urn'})
                 unique_urns = list(set(childcare_urns))
                 chart_data = hist_df[hist_df['provider_urn'].isin(unique_urns)].copy()
                 if not chart_data.empty:
                     provider_names_df = ward_childcare_df[['Provider Name', 'provider_urn']].drop_duplicates()
-                    # Use suffixes to keep the new 'Provider Name' as-is, and rename the old one to '_old'
                     chart_data = chart_data.merge(provider_names_df, on='provider_urn', how='left',
                                                   suffixes=('_old', ''))
+
                     chart_data['Quality'] = chart_data['quality_rating'].astype(str).str.lower().map(
                         OFSTED_RATING_MAP).fillna('N/A')
-                    chart_data['Places'] = pd.to_numeric(chart_data['places'], errors='coerce').fillna(0).astype(
-                        int)
-                    #Pivot for Quality
+                    chart_data['Places'] = pd.to_numeric(chart_data['places'], errors='coerce').fillna(0).astype(int)
+
                     st.markdown("**Historical Quality Rating**")
                     table_quality = chart_data.pivot_table(
                         index='Provider Name',
@@ -1255,7 +1164,7 @@ elif st.session_state.get("selected_ward_code"):
                     ).fillna('N/A')
                     table_quality = table_quality.reindex(sorted(table_quality.columns), axis=1)
                     st.dataframe(table_quality, width='stretch')
-                    #Pivot for Places
+
                     st.markdown("**Historical Registered Places**")
                     table_places = chart_data.pivot_table(
                         index='Provider Name',
@@ -1275,17 +1184,18 @@ elif st.session_state.get("selected_ward_code"):
         else:
             st.info("No childcare data available for this ward.")
 
-    #Primary Education Details Container - Ward
+    # Primary Education Details Container - Ward
     with st.container(border=True):
         st.subheader("Primary School Details")
         st.caption("Performance of primary schools associated with this ward (based on latest available FINAL data)")
 
         tab1, tab2 = st.tabs(["Schools in this Ward", "Schools in Neighbouring Wards"])
 
-        #Tab 1 - Primary Schools in this Ward
+        # Tab 1 - Primary Schools in this Ward
         with tab1:
             neighbourhoods_in_ward_df = latest_lsoa_data[latest_lsoa_data["WD25CD"] == ward_code]
-            ward_primary_schools_df, schools_in_this_ward_primary, ward_primary_urns_df = get_primary_schools(neighbourhoods_in_ward_df)
+            ward_primary_schools_df, schools_in_this_ward_primary, ward_primary_urns_df = get_primary_schools(
+                neighbourhoods_in_ward_df)
 
             if not ward_primary_schools_df.empty:
                 st.dataframe(
@@ -1301,10 +1211,9 @@ elif st.session_state.get("selected_ward_code"):
             else:
                 st.info("No primary school data available for this ward.")
 
-        #Tab 2 - Primary Schools in Neighbouring Wards
+        # Tab 2 - Primary Schools in Neighbouring Wards
         with tab2:
             try:
-                # Find neighbouring Wards using intersects
                 selected_ward_geom = ward_gdf[ward_gdf['WD25CD'] == ward_code].geometry.iloc[0]
                 intersecting_wards_gdf = ward_gdf[ward_gdf.intersects(selected_ward_geom)]
                 neighbouring_wards_gdf = intersecting_wards_gdf[intersecting_wards_gdf['WD25CD'] != ward_code]
@@ -1338,9 +1247,8 @@ elif st.session_state.get("selected_ward_code"):
 
             except Exception as e:
                 st.error("Could not process neighbouring ward data.")
-                print(e)
 
-    #Secondary Education Details Container - Ward
+    # Secondary Education Details Container - Ward
     with st.container(border=True):
         st.subheader("Secondary School Details")
         st.caption("Performance of secondary schools associated with this ward (based on latest available FINAL data)")
@@ -1348,12 +1256,13 @@ elif st.session_state.get("selected_ward_code"):
         tab1, tab2, tab3 = st.tabs(
             ["State Schools in this Ward", "State Schools in Neighbouring Wards", "Independent Schools"])
 
-        #Tab 1 - State Secondary Schools in this Ward
+        # Tab 1 - State Secondary Schools in this Ward
         with tab1:
             if 'neighbourhoods_in_ward_df' not in locals():
                 neighbourhoods_in_ward_df = latest_lsoa_data[latest_lsoa_data["WD25CD"] == ward_code]
-            ward_schools_df, schools_in_this_ward_sec, ward_secondary_urns_df = get_secondary_schools(neighbourhoods_in_ward_df,
-                                                                              school_type='state')
+            ward_schools_df, schools_in_this_ward_sec, ward_secondary_urns_df = get_secondary_schools(
+                neighbourhoods_in_ward_df,
+                school_type='state')
 
             if not ward_schools_df.empty:
                 st.dataframe(
@@ -1369,10 +1278,9 @@ elif st.session_state.get("selected_ward_code"):
             else:
                 st.info("No state secondary school data available for this ward.")
 
-        #Tab 2 - State Secondary Schools in Neighbouring Wards
+        # Tab 2 - State Secondary Schools in Neighbouring Wards
         with tab2:
             try:
-                # Find neighbouring Wards using intersects
                 if 'neighbouring_ward_codes' not in locals():
                     selected_ward_geom = ward_gdf[ward_gdf['WD25CD'] == ward_code].geometry.iloc[0]
                     intersecting_wards_gdf = ward_gdf[ward_gdf.intersects(selected_ward_geom)]
@@ -1414,7 +1322,7 @@ elif st.session_state.get("selected_ward_code"):
             except Exception as e:
                 st.error(f"Could not process neighbouring ward data: {e}")
 
-        #Tab 3 - Independent Secondary Schools
+        # Tab 3 - Independent Secondary Schools
         with tab3:
             st.info("""
             Independent schools ('IND') are not required to publish the same performance data as state schools 
@@ -1422,12 +1330,10 @@ elif st.session_state.get("selected_ward_code"):
             in this ward or neighbouring wards.
             """)
 
-            #Get independent schools from ward
             ind_schools_this_ward_df, _, _ = get_secondary_schools(
                 neighbourhoods_in_ward_df, school_type='independent'
             )
 
-            #Get independent schools from neighbouring wards
             if 'neighbour_lsoa_data' in locals() and not neighbour_lsoa_data.empty:
                 ind_schools_neighbour_df, _, _ = get_secondary_schools(
                     neighbour_lsoa_data, school_type='independent'
@@ -1435,7 +1341,6 @@ elif st.session_state.get("selected_ward_code"):
             else:
                 ind_schools_neighbour_df = pd.DataFrame()
 
-            #Combine
             all_ind_schools_df = pd.concat([ind_schools_this_ward_df, ind_schools_neighbour_df])
             if not all_ind_schools_df.empty:
                 all_ind_schools_df.drop_duplicates(subset=["School Name"], inplace=True)
@@ -1449,7 +1354,7 @@ elif st.session_state.get("selected_ward_code"):
             else:
                 st.info("No independent secondary schools found in this ward or neighbouring wards.")
 
-    #Deprivation Details Container ---
+    # Deprivation Details Container ---
     with st.container(border=True):
         st.subheader("Deprivation Details (IMD 2019 - Ward Average)")
         st.caption("""
@@ -1457,12 +1362,13 @@ elif st.session_state.get("selected_ward_code"):
         Areas are grouped into 10 'deciles', where **1 is the most deprived** 10% in England, 
         and **10 is the least deprived** 10%. Values shown here are averages for the neighbourhoods in this ward.
         """)
-        overall_decile = ward_data.get('IMD_Decile', 0)
-        if overall_decile == 0:
+        # Deciles calculated in utils.py
+        overall_decile = ward_data.get('IMD_Decile')
+        if pd.isna(overall_decile) or overall_decile == 0:
             st.metric(label="Average Overall Deprivation Decile", value="N/A")
             st.info("IMD data is not available for this area (it may be outside England).")
         else:
-            st.metric(label="Average Overall Deprivation Decile", value=f"{overall_decile} / 10")
+            st.metric(label="Average Overall Deprivation Decile", value=f"{int(overall_decile)} / 10")
             decile_data = {
                 'Deprivation Type': ['Income', 'Employment', 'Health'],
                 'Decile': [
@@ -1471,7 +1377,7 @@ elif st.session_state.get("selected_ward_code"):
                     ward_data.get('Health_Decile', 0)
                 ]
             }
-            decile_df = pd.DataFrame(decile_data)
+            decile_df = pd.DataFrame(decile_data).fillna(0)
             st.write("**Average Deprivation Breakdown (Deciles)**")
             fig = px.bar(
                 decile_df,
@@ -1485,9 +1391,11 @@ elif st.session_state.get("selected_ward_code"):
             fig.update_traces(textposition='outside')
             st.plotly_chart(fig, width='stretch')
 
-    #Neighbourhood Comparison Table for Selected Ward
+    # Neighbourhood Comparison Table for Selected Ward
     with st.container(border=True):
         st.subheader(f"Neighbourhoods in this Ward")
+
+        # We allow year selection for comparison as it looks at RAW indicators which exist for multiple years
         year_for_table = st.selectbox(
             "Select Year to Display:",
             options=all_years,
@@ -1495,16 +1403,23 @@ elif st.session_state.get("selected_ward_code"):
             key="table_year_selector"
         )
 
-        if int(year_for_table) == int(latest_year):
-            lsoa_for_table = latest_lsoa_data
+        # To get the comparison data, we pull from master_gdf directly for the selected year
+        # This contains the non-imputed raw metrics
+        master_gdf = st.session_state['master_gdf']
+        lsoa_for_table = master_gdf[master_gdf['year'] == year_for_table].copy()
+
+        # Also need to merge in the 2024 Scores if available for reference
+        if year_for_table == TARGET_YEAR:
+            # If we are looking at 2024, merge scores
+            neighbourhoods_in_ward_df = latest_lsoa_data[latest_lsoa_data["WD25CD"] == ward_code]
         else:
-            lsoa_for_table, _ = get_scored_data_for_year(year_for_table, norm_weights_tuple)
+            # Just raw data for other years
+            neighbourhoods_in_ward_df = lsoa_for_table[lsoa_for_table["WD25CD"] == ward_code]
 
-        neighbourhoods_in_ward_df = lsoa_for_table[lsoa_for_table["WD25CD"] == ward_code]
-
+        # FIX: Updated column references for Table
         cols_to_show = [
             'display_name',
-            'composite_score',
+            'Final_CI_Score',  # Only if 2024
             'latest_median_house_price',
             'population',
             'greenspace_percentage',
@@ -1522,11 +1437,12 @@ elif st.session_state.get("selected_ward_code"):
             'total_childcare_places_nearby'
         ]
 
+        # Filter cols that exist
         cols_to_show = [col for col in cols_to_show if col in neighbourhoods_in_ward_df.columns]
 
         rename_map = {
             'display_name': 'Neighbourhood',
-            'composite_score': 'Thrive Score',
+            'Final_CI_Score': 'Thrive Score (2024 Only)',
             'latest_median_house_price': 'Latest House Price',
             'population': 'Population',
             'greenspace_percentage': 'Greenspace %',
@@ -1550,7 +1466,7 @@ elif st.session_state.get("selected_ward_code"):
             df_to_display,
             hide_index=True,
             column_config={
-                "Thrive Score": st.column_config.NumberColumn(format="%.0f"),
+                "Thrive Score (2024 Only)": st.column_config.NumberColumn(format="%.0f"),
                 "Latest House Price": st.column_config.NumberColumn(format="£%d"),
                 "Population": st.column_config.NumberColumn(format="%d"),
                 "Greenspace %": st.column_config.NumberColumn(format="%.1f%%"),
@@ -1569,10 +1485,10 @@ elif st.session_state.get("selected_ward_code"):
             }
         )
 
-#View 3 - No Selection
+# View 3 - No Selection
 else:
     st.info("Use the dropdowns above to select a Ward to begin.")
 
-#Footer for Sources & Licensing
+# Footer for Sources & Licensing
 with st.expander("Sources & Licensing", expanded=False):
     st.markdown(generate_attribution_markdown())
