@@ -115,3 +115,14 @@ with col4:
     with st.container(border=True):
         st.page_link("pages/04_Sources_&_Licensing.py", label="**Sources & Licensing**", icon="⚖️")
         st.caption("Transparency on data origins and attribution.")
+
+col5, col6 = st.columns(2)
+with col5:
+    with st.container(border=True):
+        st.page_link("pages/05_Methodology.py", label="**Methodology**", icon="📚")
+        st.caption("Explaination of Composite Construction.")
+
+with col6:
+    with st.container(border=True):
+        st.page_link("pages/06_Cluster_Analysis.py", label="**Cluster Analysis**", icon="🧩")
+        st.caption("K-Means Tandem Clustering.")
