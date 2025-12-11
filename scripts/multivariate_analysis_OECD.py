@@ -121,7 +121,7 @@ def plot_scree_cumulative_single(result, output_path, year):
     ax2.legend()
     ax2.grid(True, linestyle='--')
 
-    fig.suptitle(f"Figure 5: PCA Component Selection Plots ({year})", fontsize=16, fontweight='bold')
+    fig.suptitle(f"Figure 3: PCA Component Selection Plots ({year})", fontsize=16, fontweight='bold')
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.savefig(output_path)
     plt.close()
@@ -184,7 +184,7 @@ def plot_heatmap_single(result, output_path, year):
         yticklabels=[c.replace('_', ' ').title() for c in std_df.columns],
         cbar_kws={'label': 'Loading Score'}
     )
-    plt.title(f"Figure 7: Variable Loadings on First {loadings.shape[1]} Components ({year})", fontsize=16)
+    plt.title(f"Figure 4: Variable Loadings on First {loadings.shape[1]} Components ({year})", fontsize=16)
     plt.tight_layout()
     plt.savefig(output_path)
     plt.close()

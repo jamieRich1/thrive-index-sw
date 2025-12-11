@@ -22,7 +22,7 @@ def generate_winsorization_plot(df, variables_to_plot, output_path, percentile_l
     n_cols = 2
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(12, 12), sharex=False)
     axes = axes.flatten()
-    fig.suptitle(f"Figure 14: Justification for Winsorisation ({percentile_low}% to {percentile_high}%) - 4 Worst Outliers",
+    fig.suptitle(f"Figure 9: Justification for Winsorisation ({percentile_low}% to {percentile_high}%) - 4 Worst Outliers",
                  fontsize=16,
                  fontweight='bold')
     display_name_map = {

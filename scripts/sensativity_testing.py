@@ -116,9 +116,9 @@ def run_robustness_scenarios(df):
     df['Shift_Baseline_vs_Geo'] = (df['Rank_Baseline'] - df['Rank_Geo']).abs()
     # Stats
     comparisons = [
-        ('Figure 16: Baseline vs Equal Weights', 'Baseline_Score', 'Scenario_A_Equal', 'Rank_Baseline', 'Rank_Equal',
+        ('Figure 11: Baseline vs Equal Weights', 'Baseline_Score', 'Scenario_A_Equal', 'Rank_Baseline', 'Rank_Equal',
          'Shift_Baseline_vs_Equal'),
-        ('Figure 17: Baseline vs Geometric Agg', 'Baseline_Score', 'Scenario_B_Geo', 'Rank_Baseline', 'Rank_Geo',
+        ('Figure 12: Baseline vs Geometric Agg', 'Baseline_Score', 'Scenario_B_Geo', 'Rank_Baseline', 'Rank_Geo',
          'Shift_Baseline_vs_Geo')
     ]
     print(f"{'Comparison':<30} | {'Pearson R':<10} | {'Spearman Rho':<12} | {'Avg Rank Shift':<15}")
@@ -188,7 +188,7 @@ def plot_caterpillar(ranks):
     )
     plt.scatter(x, sample['median_rank'], s=2, c='black', zorder=2, label='Median Rank')
     plt.title(
-        f'Figure 18: Uncertainty Analysis (Caterpillar Plot)\n{NUM_SIMULATIONS} Simulations varying Dynamic PCA Weights by +/- {int(UNCERTAINTY_RANGE * 100)}%')
+        f'Figure 13: Uncertainty Analysis (Caterpillar Plot)\n{NUM_SIMULATIONS} Simulations varying Dynamic PCA Weights by +/- {int(UNCERTAINTY_RANGE * 100)}%')
     plt.xlabel('LSOAs (Sorted by Median Rank)')
     plt.ylabel('Rank Range (5th - 95th Percentile)')
     plt.gca().invert_yaxis()

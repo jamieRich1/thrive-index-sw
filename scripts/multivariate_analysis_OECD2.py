@@ -131,7 +131,7 @@ def plot_scree_cumulative_single(result, output_path, year):
     ax2.legend()
     ax2.grid(True, linestyle='--')
 
-    fig.suptitle(f"Figure 10: PCA Component Selection Plots ({year})", fontsize=16, fontweight='bold')
+    fig.suptitle(f"Figure 5: PCA Component Selection Plots ({year})", fontsize=16, fontweight='bold')
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.savefig(output_path)
     plt.close()
@@ -214,7 +214,7 @@ def plot_heatmap_single(result, output_path, year):
         yticklabels=[c.replace('_', ' ').title().replace('Weighted', '') for c in std_df.columns],
         cbar_kws={'label': 'Loading Score'}
     )
-    plt.title(f"Figure 11: Variable Loadings on First {loadings.shape[1]} Components ({year})", fontsize=16)
+    plt.title(f"Figure 6: Variable Loadings on First {loadings.shape[1]} Components ({year})", fontsize=16)
     plt.tight_layout()
     plt.savefig(output_path)
     plt.close()
@@ -232,7 +232,7 @@ def plot_means_single(result, output_path, year):
         plt.plot(cluster_means.columns, cluster_means.iloc[cluster_id],
                  marker='o', linewidth=2, label=f'Cluster {cluster_id}', color=colors[cluster_id])
     plt.axhline(0, color='black', linestyle='--', linewidth=1, label='Avg (Z=0)')
-    plt.title(f"Figure 12: Cluster Profiles: Standardized Means ({year})", fontsize=16)
+    plt.title(f"Figure 7: Cluster Profiles: Standardized Means ({year})", fontsize=16)
     plt.xlabel("Indicator Variable", fontsize=12)
     plt.ylabel("Z-Score (Standard Deviations from Mean)", fontsize=12)
     plt.xticks(rotation=45, ha='right', fontsize=10)
@@ -283,7 +283,7 @@ def plot_map_single(result, output_path, project_dir, year):
         edgecolor='black', linewidth=0.1, categorical=True,
         legend_kwds={'title': 'Cluster ID', 'loc': 'lower left', 'fontsize': 10}
     )
-    ax.set_title(f"Figure 13: Geographic Cluster Distribution ({year})", fontsize=16, fontweight='bold')
+    ax.set_title(f"Figure 8: Geographic Cluster Distribution ({year})", fontsize=16, fontweight='bold')
     ax.set_axis_off()
     plt.tight_layout()
     plt.savefig(output_path, dpi=300)

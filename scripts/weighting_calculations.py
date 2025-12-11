@@ -131,7 +131,7 @@ def plot_heatmap(loadings_df, year, output_dir):
         yticklabels=True,
         xticklabels=rc_labels
     )
-    plt.title(f'Figure 15: Rotated Factor Loadings Heatmap (Varimax) - {year}', fontsize=14)
+    plt.title(f'Figure 10: Rotated Factor Loadings Heatmap (Varimax) - {year}', fontsize=14)
     plt.xlabel('Rotated Component (RC) / Composite Pillar', fontsize=12)
     plt.ylabel('Indicator Variable (Grouped by Highest Loading)', fontsize=12)
     plt.yticks(rotation=0)
@@ -172,7 +172,7 @@ def main():
     print(f"FACTOR ANALYSIS AND OECD WEIGHTING SUMMARY (ON NORMALIZED SCORES) ({TARGET_YEAR})")
     print("=" * 70)
     # A. PCA and Rotation Summary (Initial Metrics)
-    print("\n## 📉 1. PCA AND ROTATION SUMMARY")
+    print("\n1. PCA AND ROTATION SUMMARY")
     # Initial PCA Metrics
     print("\n1.1 Initial PCA Component Metrics:")
     print("Component | Eigenvalue | Variance Explained | Cumulative Variance")
@@ -188,7 +188,7 @@ def main():
     print("This table shows the correlation (loading) of each indicator with its respective factor.")
     print("-" * 70)
     # B. OECD WEIGHTING PROCESS
-    print("\n\n## 🔑 2. OECD COMPOSITE INDICATOR WEIGHTING PROCESS")
+    print("\n\n2. OECD COMPOSITE INDICATOR WEIGHTING PROCESS")
     # 2.1 Level 1: Indicator Weights
     print("\n2.1 LEVEL 1: INDICATOR WEIGHTS (wi,j) - Within Factor")
     # 2.1.1 Indicator Grouping Table
