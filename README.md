@@ -1,6 +1,6 @@
 # Thrive Index SW
 
-The Dashboard can be accessed on [StreamLit Community Cloud](https://thrive-index-sw-cbe2s5vnzxxp47nh87kbyg.streamlit.app/).
+The Dashboard can be accessed on [StreamLit Community Cloud](https://thrive-index-sw-drrlyvx787hoxbrpqzny7z.streamlit.app/).
 
 **A high-resolution data intelligence tool for measuring child prosperity at the neighbourhood level across South West England.**
 
