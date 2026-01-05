@@ -95,9 +95,18 @@ else:
     print("[INFO] All LSOAs successfully assigned to a LAD.")
 
 #Save GeoParquet
-parquet_out = OUT / "boundaries_lsoa.geoparquet"
-lsoa_sw_joined[["area_code","area_name","lad_code","lad_name","geometry"]].to_parquet(parquet_out)
-print(f"[INFO] Wrote: {parquet_out} ({parquet_out.stat().st_size/1e6:.1f} MB)")
+final_gdf = lsoa_sw_joined[["area_code", "area_name", "lad_code", "lad_name", "geometry"]]
+NUM_CHUNKS = 10
+print(f"[INFO] Splitting {len(final_gdf)} rows into {NUM_CHUNKS} files in {OUT}...")
+rows_per_chunk = len(final_gdf) // NUM_CHUNKS
+for i in range(NUM_CHUNKS):
+    start_row = i * rows_per_chunk
+    end_row = (i + 1) * rows_per_chunk if i < (NUM_CHUNKS - 1) else len(final_gdf)
+    chunk = final_gdf.iloc[start_row:end_row]
+    chunk_filename = f"boundaries_lsoa_part{i + 1}.geoparquet"
+    output_path = OUT / chunk_filename
+    chunk.to_parquet(output_path)
+    print(f"   Saved: {chunk_filename} ({output_path.stat().st_size / 1e6:.2f} MB)")
 
 #Save simplified LAD outline (UI)
 lad_outline = lad_sw_27700.copy()
