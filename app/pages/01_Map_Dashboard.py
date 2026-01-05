@@ -7,14 +7,9 @@ from streamlit_folium import st_folium
 from licensing import generate_attribution_markdown
 
 from utils import (
-    load_master_data,
-    load_greenspace_geometries,
-    load_postcode_list,
-    get_postcode_coords,
-    find_containing_area,
-    get_color,
-    LAD_PALETTE,
-    get_scored_data_for_year
+    get_2024_map_data, load_political_boundaries,
+    load_greenspace_geometries, load_postcode_list,
+    get_postcode_coords, find_containing_area, get_color, LAD_PALETTE
 )
 
 # Page Settings
@@ -32,13 +27,10 @@ if "selected_lsoa_code" not in st.session_state:
     st.session_state.selected_lsoa_code = None
 
 # Data Loading
-if 'master_gdf' not in st.session_state:
-    load_master_data()
-lad_gdf = st.session_state['lad_gdf']
-ward_gdf = st.session_state['ward_gdf']
-lsoa_index_gdf_base = st.session_state['lsoa_index_gdf_base']  # Base geometries
-master_gdf = st.session_state['master_gdf']  # Full data
+lad_gdf, ward_gdf = load_political_boundaries()
 greenspace_gdf = load_greenspace_geometries()
+lsoa_to_display, ward_to_display = get_2024_map_data()
+lsoa_index_gdf_base = lsoa_to_display
 
 # Set Target Year Strictly to 2024
 TARGET_YEAR = 2024
@@ -59,7 +51,7 @@ if 'postcode_search' in st.session_state and st.session_state.postcode_search:
             # Get LSOA code from geometry
             lsoa_code = containing_lsoa_geom['area_code']
             # Get Ward/LAD info from master_gdf
-            lsoa_info = master_gdf[master_gdf['area_code'] == lsoa_code].iloc[0]
+            lsoa_info = lsoa_to_display[lsoa_to_display['area_code'] == lsoa_code].iloc[0]
             # Set the session state to drill down
             st.session_state.selected_lad_code = lsoa_info['LAD25CD']
             st.session_state.selected_ward_code = lsoa_info['WD25CD']
@@ -76,14 +68,9 @@ with st.sidebar:
     st.caption("This dashboard focuses exclusively on the 2024 composite scores.")
 
     # View Mode Toggle
-    overview_mode = st.toggle("🌍 Regional Overview Mode", value=False,
+    overview_mode = st.toggle("Regional Overview Mode", value=False,
                               help="Switch to a single view showing all LSOAs across the South West.")
     st.markdown("---")
-
-# Data Retrieval
-# Note: Scoring is now pre-calculated in the parquet file. We just fetch the data.
-lsoa_to_display, ward_to_display = get_scored_data_for_year(TARGET_YEAR)
-
 
 # Helper to prepare simplified data for overview mode (Cached to avoid re-processing)
 # Renamed arg to _df to prevent hashing error

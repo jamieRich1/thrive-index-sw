@@ -9,6 +9,7 @@ from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 import geopandas as gpd
+from utils import load_lsoa_boundaries, load_political_boundaries
 
 #Page Config
 st.set_page_config(
@@ -37,15 +38,13 @@ def load_cluster_data():
     if not NORMALIZED_DATA_FILE.exists():
         st.error(f"Data not found at {NORMALIZED_DATA_FILE}")
         return None, None, None
+
+    # Load Data
     df = pd.read_parquet(NORMALIZED_DATA_FILE)
     df = df[df['year'] == TARGET_YEAR].set_index('area_code')
-    if not BOUNDARIES_FILE.exists():
-        st.error(f"Boundaries not found at {BOUNDARIES_FILE}")
-        return df, None, None
-    gdf = gpd.read_parquet(BOUNDARIES_FILE)
-    lad_gdf = None
-    if LAD_OUTLINE_FILE.exists():
-        lad_gdf = gpd.read_file(LAD_OUTLINE_FILE)
+    gdf = load_lsoa_boundaries()
+    lad_gdf, _ = load_political_boundaries()
+
     return df, gdf, lad_gdf
 
 

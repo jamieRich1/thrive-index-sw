@@ -3,8 +3,8 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from utils import (
-    load_master_data,
-    get_scored_data_for_year
+    load_attribute_data,
+    load_political_boundaries
 )
 from licensing import generate_attribution_markdown
 
@@ -15,11 +15,9 @@ st.set_page_config(
 )
 
 # Load Data into Session State
-if 'master_gdf' not in st.session_state:
-    load_master_data()
-lad_gdf = st.session_state['lad_gdf']
-ward_gdf = st.session_state['ward_gdf']
-master_gdf = st.session_state['master_gdf']
+lad_gdf, ward_gdf = load_political_boundaries()
+lsoa_to_display = load_attribute_data(year_filter=2024)
+ward_to_display = lsoa_to_display.groupby(['WD25CD', 'WD25NM', 'LAD25CD'], as_index=False).mean(numeric_only=True)
 
 # Hardcode Year to 2024
 TARGET_YEAR = 2024
@@ -115,7 +113,6 @@ st.sidebar.info(f"Viewing Data for **{TARGET_YEAR}**")
 st.sidebar.caption("This tool uses the final 2024 composite scores and data.")
 
 # Data Retrieval
-lsoa_to_display, ward_to_display = get_scored_data_for_year(TARGET_YEAR)
 ward_stats_df_page = ward_to_display.copy()
 lsoa_index_gdf_page = lsoa_to_display.copy()
 
