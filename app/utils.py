@@ -5,6 +5,7 @@ import geopandas as gpd
 from shapely.geometry import Point
 from pathlib import Path
 import numpy as np
+import glob
 
 # Constants
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "processed"
@@ -25,6 +26,16 @@ HISTORICAL_GP_SCORES_FILE = DATA_DIR / "gp_historical_satisfaction.parquet"
 HISTORICAL_CHILDCARE_FILE = DATA_DIR / "childcare_historical_data.parquet"
 HISTORICAL_PRIMARY_SCORES_FILE = DATA_DIR / "primary_school_historical_data.parquet"
 HISTORICAL_SECONDARY_SCORES_FILE = DATA_DIR / "secondary_school_historical_data.parquet"
+
+def load_chunked_geoparquet(base_name):
+    search_pattern = str(DATA_DIR / f"{base_name}_part*.geoparquet")
+    parts = sorted(glob.glob(search_pattern), key=lambda x: int(x.split('part')[-1].split('.')[0]))
+    if not parts:
+        st.error(f"Could not find any parts for {base_name} in {DATA_DIR}")
+        return None
+    gdfs = [gpd.read_parquet(p) for p in parts]
+    return gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True), crs=gdfs[0].crs)
+
 
 # Data Loaders
 @st.cache_data(show_spinner="Loading greenspace areas...")
@@ -116,23 +127,17 @@ def load_secondary_historical_data():
     df['year'] = df['year'].astype(str)
     return df
 
-
 # Master Data Loader
 @st.cache_data(show_spinner="Loading and preparing all map data...")
-def load_master_data():
+def _internal_load_data():
     """
     Loads all base geographies, the context data, and the final 2024 composite scores.
-    Merges them into a single master_gdf stored in session_state.
+    Returns the objects directly instead of setting session_state.
     """
     # Part 1 - Load base geographic data
     lad_gdf = gpd.read_file(LAD_GDF_FILE).to_crs(4326)
-    lsoa_index_gdf_base = gpd.read_parquet(LSOA_BOUNDARIES_FILE).to_crs(4326)
+    lsoa_index_gdf_base = load_chunked_geoparquet("boundaries_lsoa").to_crs(4326)
     ward_gdf = gpd.read_file(WARD_GJSON).to_crs(4326)
-
-    # Store base geos in session state
-    st.session_state['lad_gdf'] = lad_gdf
-    st.session_state['ward_gdf'] = ward_gdf
-    st.session_state['lsoa_index_gdf_base'] = lsoa_index_gdf_base
 
     # Part 2 - Load Context Data (Non-imputed annual indicators)
     if not LSOA_CONTEXT_DATA_FILE.exists():
@@ -214,6 +219,17 @@ def load_master_data():
         lambda row: f"{row['WD25NM']} - Neighbourhood {row['neighbourhood_num']}",
         axis=1
     )
+
+    return lad_gdf, ward_gdf, lsoa_index_gdf_base, master_gdf
+
+def load_master_data():
+    """Wrapper function to load data and assign to session state."""
+    lad_gdf, ward_gdf, lsoa_index_gdf_base, master_gdf = _internal_load_data()
+
+    # Store base geos in session state
+    st.session_state['lad_gdf'] = lad_gdf
+    st.session_state['ward_gdf'] = ward_gdf
+    st.session_state['lsoa_index_gdf_base'] = lsoa_index_gdf_base
 
     # Store the master gdf in session state
     st.session_state['master_gdf'] = master_gdf
