@@ -3,9 +3,17 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from utils import (
-    load_master_data,
-    get_scored_data_for_year,
-    load_monthly_crime_data
+    load_political_boundaries,
+    load_lsoa_boundaries,
+    load_attribute_data,
+    load_monthly_crime_data,
+    load_house_price_history,
+    get_postcode_coords,
+    find_containing_area,
+    load_gp_historical_data,
+    load_childcare_historical_data,
+    load_primary_historical_data,
+    load_secondary_historical_data
 )
 from licensing import generate_attribution_markdown
 import plotly.express as px
@@ -34,18 +42,15 @@ OFSTED_RATING_MAP = {
 }
 
 # Data Loading
-if 'master_gdf' not in st.session_state:
-    load_master_data()
-lad_gdf = st.session_state['lad_gdf']
-ward_gdf = st.session_state['ward_gdf']
-lsoa_index_gdf_base = st.session_state['lsoa_index_gdf_base']
-if 'monthly_crime_df' not in st.session_state:
-    st.session_state['monthly_crime_df'] = load_monthly_crime_data()
-monthly_crime_df = st.session_state['monthly_crime_df']
-gp_historical_df = st.session_state.get('gp_historical_df', pd.DataFrame())
-childcare_historical_df = st.session_state.get('childcare_historical_df', pd.DataFrame())
-primary_historical_df = st.session_state.get('primary_historical_df', pd.DataFrame())
-secondary_historical_df = st.session_state.get('secondary_historical_df', pd.DataFrame())
+lad_gdf, ward_gdf = load_political_boundaries()
+lsoa_index_gdf_base = load_lsoa_boundaries()
+master_gdf = load_attribute_data(year_filter=None)
+st.session_state['master_gdf'] = master_gdf
+monthly_crime_df = load_monthly_crime_data()
+gp_historical_df = load_gp_historical_data()
+childcare_historical_df = load_childcare_historical_data()
+primary_historical_df = load_primary_historical_data()
+secondary_historical_df = load_secondary_historical_data()
 
 # Sidebar
 with st.sidebar:
@@ -128,12 +133,26 @@ with st.sidebar:
     st.markdown("---")
 
 # Retrieve Data
-latest_lsoa_data, latest_ward_data = get_scored_data_for_year(TARGET_YEAR)
+latest_lsoa_data = master_gdf[master_gdf['year'] == TARGET_YEAR].copy()
+agg_rules = {
+    'Final_CI_Score': 'mean',
+    'Socio-Economic_Deprivation_Score': 'mean',
+    'Environmental_Safety_Score': 'mean',
+    'Secondary_Education_Score': 'mean',
+    'Primary_Education_Score': 'mean',
+    'Childcare_Quality_Score': 'mean',
+    'population': 'sum',
+    'latest_median_house_price': 'mean',
+    'IMD_Decile': 'mean',
+    'Income_Decile': 'mean',
+    'Employment_Decile': 'mean',
+    'Health_Decile': 'mean'
+}
+valid_aggs = {k: v for k, v in agg_rules.items() if k in latest_lsoa_data.columns}
+latest_ward_data = latest_lsoa_data.groupby(['WD25CD', 'WD25NM'], as_index=False).agg(valid_aggs)
 all_years = sorted(st.session_state['master_gdf']['year'].unique())
 
-
 # HELPER FUNCTIONS Shared by LSOA & Ward
-
 # Get and display primary schools
 def get_primary_schools(lsoa_df):
     """Extracts primary school data from a dataframe of LSOAs"""
@@ -400,8 +419,8 @@ if st.session_state.get("selected_lsoa_code"):
             price_val = f"£{int(latest_price):,}" if pd.notna(latest_price) else "N/A"
             st.metric(label=f"Latest Price ({latest_period_label})", value=price_val)
 
-        lsoa_history_all = st.session_state.get('lsoa_house_price_history')
-        sw_history = st.session_state.get('sw_house_price_history')
+        lsoa_history_all = load_house_price_history('lsoa')
+        sw_history = load_house_price_history('sw')
 
         if lsoa_history_all is not None and not lsoa_history_all.empty:
             lsoa_history = lsoa_history_all[lsoa_history_all['area_code'] == lsoa_code].copy()
@@ -927,8 +946,8 @@ elif st.session_state.get("selected_ward_code"):
             price_val = f"£{int(latest_price):,}" if pd.notna(latest_price) else "N/A"
             st.metric(label=f"Latest Avg. Price ({latest_period_label})", value=price_val)
 
-        ward_history_all = st.session_state.get('ward_house_price_history')
-        sw_history = st.session_state.get('sw_house_price_history')
+        ward_history_all = load_house_price_history('ward')
+        sw_history = load_house_price_history('sw')
         if ward_history_all is not None and not ward_history_all.empty:
             ward_history = ward_history_all[ward_history_all['area_code'] == ward_code].copy()
 
