@@ -95,6 +95,9 @@ else:
     print("[INFO] All LSOAs successfully assigned to a LAD.")
 
 #Save GeoParquet
+parquet_out = OUT / "boundaries_lsoa.geoparquet"
+lsoa_sw_joined[["area_code","area_name","lad_code","lad_name","geometry"]].to_parquet(parquet_out)
+print(f"[INFO] Wrote: {parquet_out} ({parquet_out.stat().st_size/1e6:.1f} MB)")
 final_gdf = lsoa_sw_joined[["area_code", "area_name", "lad_code", "lad_name", "geometry"]]
 NUM_CHUNKS = 10
 print(f"[INFO] Splitting {len(final_gdf)} rows into {NUM_CHUNKS} files in {OUT}...")
